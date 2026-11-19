@@ -51,7 +51,13 @@ h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;
 .muted{color:var(--ink2)} .faint{color:var(--ink3)} .small{font-size:13px} .tiny{font-size:12px}
 .row{display:flex;align-items:center;gap:10px}
 .between{justify-content:space-between}
-.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.grid2{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:10px}
+.grid2>*{min-width:0}
+input,select{min-width:0;max-width:100%}
+input[type=date]{-webkit-appearance:none;appearance:none;display:block;line-height:42px;text-align:left}
+input[type=date]::-webkit-date-and-time-value{text-align:left;margin:0}
+input[type=date]::-webkit-calendar-picker-indicator{margin-left:auto}
+select{text-overflow:ellipsis;white-space:nowrap;overflow:hidden}
 .tile .label{font-size:12px;color:var(--ink3);font-weight:600}
 .tile .val{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
 .tile .sub{font-size:12px;margin-top:2px;color:var(--ink2)}
@@ -129,7 +135,8 @@ nav.tabs .scan{width:58px;height:58px;border-radius:20px;background:var(--accent
 @keyframes spin{to{transform:rotate(360deg)}}
 .stream{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink3);max-height:110px;overflow:hidden;white-space:pre-wrap;margin-top:14px;text-align:left;mask-image:linear-gradient(transparent,#000 40%)}
 /* diverging bars */
-.dv{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:4px 12px;align-items:center}
+.dv{display:grid;grid-template-columns:minmax(0,1fr) auto 84px;gap:4px 10px;align-items:center}
+.dvrow .pc{border-bottom:1px solid var(--line);height:100%;display:flex;align-items:center;justify-content:flex-end;font-size:12.5px;font-weight:800;font-variant-numeric:tabular-nums;white-space:nowrap}
 .dvrow{display:contents}
 .dvrow .nm{padding:9px 0;border-bottom:1px solid var(--line);min-width:0}
 .dvrow .nm .t{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -152,6 +159,16 @@ table.t td{padding:9px 6px;border-bottom:1px solid var(--line)}
 table.t .n{text-align:right}
 .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
 .toast.show{opacity:1}
+.pills{display:flex;flex-wrap:wrap;gap:8px}
+.chip .cnt{margin-left:6px;font-size:11px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
+.chip.dim:not(.on){opacity:.5}
+.dd{position:relative}
+.dd .btn svg{flex:none}
+.ddm{position:absolute;left:0;bottom:calc(100% + 6px);min-width:220px;background:var(--card);border-radius:14px;box-shadow:0 10px 30px rgba(0,0,0,.18),0 0 0 1px var(--line);padding:6px;display:none;z-index:30}
+.dd.open .ddm{display:block}
+.ddm button{display:flex;flex-direction:column;align-items:flex-start;width:100%;padding:9px 12px;border-radius:10px;text-align:left}
+.ddm button:hover,.ddm button:focus-visible{background:var(--bg);outline:none}
+.ddm button b{font-size:14px}.ddm button span{font-size:12px;color:var(--ink3)}
 .swipe{position:relative;border-radius:14px;overflow:hidden}
 .swipe + .swipe{margin-top:6px}
 .swipe .li{position:relative;z-index:1;transition:transform .22s ease;touch-action:pan-y}
@@ -766,14 +783,37 @@ function photoViewer(bill, start){
   const ids=(bill.photos||[]).map(p=>p.id); let i=start||0, zoom=false;
   openSheet(`${sheetHd('Bill photo')}<div class="bd" style="padding:0 8px 8px"><div id="pvWrap" style="overflow:auto;border-radius:12px;background:#fff;max-height:70vh;touch-action:pan-x pan-y pinch-zoom"><img id="pvImg" alt="Bill photo" style="display:block;width:100%;height:auto"></div>
     <p class="tiny faint" id="pvInfo" style="text-align:center;margin-top:6px"></p></div>
-    <div class="ft">${ids.length>1?`<button class="btn ghost" id="pvPrev" style="flex:0 0 auto">‹</button>`:''}<button class="btn ghost" id="pvZoom">Zoom in</button>${STANDALONE?`<button class="btn ghost" id="pvDl">Download</button>`:''}${ids.length>1?`<button class="btn ghost" id="pvNext" style="flex:0 0 auto">›</button>`:''}<button class="btn" data-close>Done</button></div>`, async s=>{
+    <div class="ft" style="gap:8px">${ids.length>1?`<button class="btn ghost" id="pvPrev" style="flex:0 0 auto" aria-label="Previous photo">‹</button>`:''}<button class="btn ghost" id="pvZoom">Zoom in</button>${STANDALONE?`<button class="btn ghost" id="pvDl">Download</button>`:''}<button class="btn ghost" id="pvDel" style="color:var(--up)">Delete</button>${ids.length>1?`<button class="btn ghost" id="pvNext" style="flex:0 0 auto" aria-label="Next photo">›</button>`:''}</div>`, async s=>{
     const show=async()=>{ const im=s.querySelector('#pvImg'); const u=await photoURL(ids[i]); im.src=u||''; im.style.width=zoom?'200%':'100%';
       const m=bill.photos[i]; s.querySelector('#pvInfo').textContent=(ids.length>1?`Photo ${i+1} of ${ids.length} · `:'')+(m&&m.size?Math.round(m.size/1024)+' KB':'')+(u?'':' · not available on this device'); };
     s.querySelector('#pvZoom').onclick=e=>{ zoom=!zoom; e.target.textContent=zoom?'Fit to screen':'Zoom in'; show(); };
     s.querySelector('#pvPrev')&&(s.querySelector('#pvPrev').onclick=()=>{ i=(i-1+ids.length)%ids.length; show(); });
     s.querySelector('#pvNext')&&(s.querySelector('#pvNext').onclick=()=>{ i=(i+1)%ids.length; show(); });
     s.querySelector('#pvDl')&&(s.querySelector('#pvDl').onclick=async()=>{ const rec=await PhotoDB.get(ids[i]); if(!rec){ toast('Photo not available'); return; } downloadFile(`bill-${bill.date}-${(bill.store||'store').replace(/\W+/g,'-')}${ids.length>1?'-'+(i+1):''}.jpg`, rec.blob, 'image/jpeg'); });
+    s.querySelector('#pvDel').onclick=async()=>{
+      const ok=await overlayConfirm('Delete this photo?', '<p class="muted">The bill and its items stay. Only this photo is removed.</p>', 'Delete photo'); if(!ok) return;
+      const id=ids[i], cur=S.bills.find(x=>x.id===bill.id)||bill, nb=JSON.parse(JSON.stringify(cur));
+      nb.photos=(nb.photos||[]).filter(p=>p.id!==id); if(!nb.photos.length) delete nb.photos;
+      await saveBill(nb); await dropPhotos([id]); queuePhotos([], [id]); toast('Photo deleted');
+      if(nb.photos && nb.photos.length) photoViewer(nb, Math.min(i, nb.photos.length-1)); else billSheet(nb.id);
+    };
     show();
+  });
+}
+/* Several photos picked for one bill: review them (remove wrong ones, add pages) before reading. */
+function photoPicker(files){
+  let fs=[...files]; let urls=fs.map(f=>URL.createObjectURL(f));
+  const xIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const body=()=>`<p class="small muted" style="margin-bottom:10px">These photos will be read as <b>one bill</b>, in this order. Remove any that don't belong.</p>
+    <div class="thumbs" style="flex-wrap:wrap">${fs.map((f,i)=>`<div class="thumb" style="width:96px;height:128px"><img src="${urls[i]}" alt="Photo ${i+1}"><button class="rm" data-pk="${i}" aria-label="Remove photo ${i+1}">${xIcon}</button><span style="position:absolute;left:4px;bottom:4px;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:1px 6px">${i+1}</span></div>`).join('')}<button class="thumb add" id="pkAdd" style="width:96px;height:128px">+ Add<br>page</button></div>`;
+  openSheet(`${sheetHd('Selected photos')}<div class="bd" id="pkBody">${body()}</div><div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn" id="pkGo"></button></div>`, s=>{
+    const upd=()=>{ s.querySelector('#pkBody').innerHTML=body(); const g=s.querySelector('#pkGo'); g.textContent=fs.length?`Read bill (${fs.length} photo${fs.length>1?'s':''})`:'Add a photo'; g.disabled=!fs.length; };
+    s.querySelector('#pkBody').addEventListener('click',async e=>{
+      const r=e.target.closest('[data-pk]'); if(r){ const i=+r.dataset.pk; URL.revokeObjectURL(urls[i]); fs.splice(i,1); urls.splice(i,1); upd(); return; }
+      if(e.target.closest('#pkAdd')){ const more=await pickPhotos(); if(more.length){ fs.push(...more); urls.push(...more.map(f=>URL.createObjectURL(f))); upd(); } }
+    });
+    s.querySelector('#pkGo').onclick=()=>{ urls.forEach(u=>URL.revokeObjectURL(u)); readBill(fs); };
+    upd();
   });
 }
 const pickPhotos = () => new Promise(res=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.multiple=true; inp.onchange=()=>res([...inp.files]); inp.click(); });
@@ -906,9 +946,10 @@ function viewReports(){
     <div class="card" style="margin-top:10px">
       <div class="row between"><b>Item price change</b><span class="small faint">${ups} up · ${downs} down</span></div>
       <div class="small faint" style="margin-top:2px">Average price per unit, ${periodLabel(R.b,R.type)} → ${periodLabel(R.a,R.type)}</div>
-      ${c.rows.length?`<div class="dv" style="margin-top:8px">${c.rows.map(r=>{ const w=Math.max(1,Math.abs(r.chg)/max*30); const up=r.chg>=0;
+      ${c.rows.length?`<div class="dv" style="margin-top:8px">${c.rows.map(r=>{ const w=Math.max(1,Math.abs(r.chg)/max*48); const up=r.chg>=0, flat=Math.abs(r.chg)<0.5;
         return `<button class="dvrow" data-item="${esc(r.key)}" style="all:unset;display:contents;cursor:pointer"><div class="nm"><div class="t">${esc(r.canon)}</div><div class="s">${money(r.b)} → ${money(r.a)} /${UNIT_LABEL[r.base]}</div></div>
-        <div class="bar"><span class="axis"></span><span class="fill ${up?'up':'down'}" style="width:${w}%"></span><span class="pct" style="${up?`left:calc(50% + ${w}% + 4px)`:`right:calc(50% + ${w}% + 4px)`};color:${up?'var(--up)':'var(--down)'}">${pctFmt(r.chg)}</span></div></button>`; }).join('')}</div>
+        <div class="pc" style="color:${flat?'var(--ink3)':up?'var(--up)':'var(--down)'}">${pctFmt(r.chg)}</div>
+        <div class="bar"><span class="axis"></span>${flat?'':`<span class="fill ${up?'up':'down'}" style="width:${w}%"></span>`}</div></button>`; }).join('')}</div>
         <div class="legend"><span><i style="background:var(--up)"></i>Price went up</span><span><i style="background:var(--down)"></i>Price went down</span></div>`
       :`<p class="small muted" style="margin-top:10px">No item was bought in both periods.</p>`}
       ${c.onlyA?`<p class="tiny faint" style="margin-top:10px">${c.onlyA} item(s) bought only in ${periodLabel(R.a,R.type)} aren't compared.</p>`:''}
@@ -917,10 +958,12 @@ function viewReports(){
   return `<h2>Reports</h2>
   <div class="seg"><button data-rt="month" class="${R.type==='month'?'on':''}">Monthly</button><button data-rt="fy" class="${R.type==='fy'?'on':''}">Financial year</button></div>
   <div class="grid2" style="margin-top:10px"><div><label class="f">Period</label><select id="repA">${opt(R.a)}</select></div><div><label class="f">Compared with</label><select id="repB">${opt(R.b)}</select></div></div>
-  <div class="chips" style="margin-top:12px">${['all',...CAT_KEYS.filter(k=>S.bills.some(b=>b.category===k))].map(k=>`<button class="chip ${R.cat===k?'on':''}" data-rc="${k}">${k==='all'?'All':CATS[k].icon+' '+CATS[k].label}</button>`).join('')}</div>
+  <div style="margin-top:14px"><label class="f">Type</label><div class="pills">${['all',...CAT_KEYS].map(k=>{ const n=k==='all'?S.bills.length:S.bills.filter(b=>b.category===k).length;
+    return `<button class="chip ${R.cat===k?'on':''} ${n?'':'dim'}" data-rc="${k}" aria-pressed="${R.cat===k}">${k==='all'?'All':CATS[k].icon+' '+CATS[k].label}<span class="cnt">${n}</span></button>`; }).join('')}</div></div>
   ${body}
   <div class="card" style="margin-top:10px"><b>Spending by ${R.type==='fy'?'financial year':'month'}</b><div class="chartwrap" id="spendChart" style="margin-top:10px"></div></div>
-  <div class="row" style="margin-top:12px;gap:8px"><button class="btn ghost sm" data-act="copyReport">${STANDALONE?'Download':'Copy'} report (CSV)</button><button class="btn ghost sm" data-act="copyAll">${STANDALONE?'Download':'Copy'} all purchases (CSV)</button></div>`;
+  <div class="row" style="margin-top:12px;gap:8px;flex-wrap:wrap">${['report','all'].map(k=>`<div class="dd"><button class="btn ghost sm" data-dd aria-haspopup="menu" aria-expanded="false"><svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12M7 10l5 5 5-5M5 21h14"/></svg> ${k==='report'?'Download report':'Download all purchases'} <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 9l6 6 6-6"/></svg></button>
+    <div class="ddm" role="menu">${[['csv','CSV','Opens in any spreadsheet app'],['xlsx','Excel','.xlsx workbook'],['pdf','PDF','Ready to print or share']].map(([f,l,d])=>`<button role="menuitem" data-dl="${k}:${f}"><b>${l}</b><span>${d}</span></button>`).join('')}</div></div>`).join('')}</div>`;
 }
 function wireReports(){
   const R=S.rep;
@@ -1002,7 +1045,7 @@ function scanChooser(){
     if(ai){ s.querySelector('#sCam').onclick=()=>$('#fileCam').click(); s.querySelector('#sGal').onclick=()=>$('#fileGal').click(); }
   });
 }
-for (const id of ['#fileCam','#fileGal']) $(id).addEventListener('change', e=>{ const fs=[...e.target.files]; e.target.value=''; if(fs.length) readBill(fs); });
+for (const id of ['#fileCam','#fileGal']) $(id).addEventListener('change', e=>{ const fs=[...e.target.files]; e.target.value=''; if(fs.length>1) photoPicker(fs); else if(fs.length) readBill(fs); });
 
 async function shrink(file){
   const url=URL.createObjectURL(file);
@@ -1110,9 +1153,12 @@ function reviewSheet(bill, isNew, newArch){
     <div class="pu" data-pu></div></div>`;
   openSheet(`${sheetHd(isNew?'Check & save bill':'Edit bill')}<div class="bd">
     <label class="f">Bill photo</label><div id="rPhotos">${stripHtml()}</div>
-    ${fromScan?`<div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread. The bill photo was ${added.some(a=>a.auto)?'cropped and ':''}cleaned up — tap it to adjust the crop.</div>`:'<div style="height:8px"></div>'}
+    ${fromScan?`<div class="note info" style="margin:6px 0 12px">Compare the details below with your bill. If anything was misread, tap <b>Edit</b>. Tap the photo to adjust its crop.</div>`:'<div style="height:8px"></div>'}
     <div id="rDup"></div>
-    <div class="grid2" style="grid-template-columns:1fr 110px"><div><label class="f">Store</label><input type="text" id="rStore" value="${esc(b.store)}" placeholder="Store name"></div><div><label class="f">Bill no.</label><input type="text" id="rBillNo" value="${esc(b.billNo||'')}" placeholder="Optional"></div></div>
+    <div id="rView"></div>
+    <div id="rForm">
+    ${fromScan?`<div class="row between" style="margin-bottom:8px"><b class="small" style="color:var(--ink2)">Editing bill details</b><button class="btn ghost sm" id="rDoneEdit">✓ Done editing</button></div>`:''}
+    <div class="grid2" style="grid-template-columns:minmax(0,1fr) 110px"><div><label class="f">Store</label><input type="text" id="rStore" value="${esc(b.store)}" placeholder="Store name"></div><div><label class="f">Bill no.</label><input type="text" id="rBillNo" value="${esc(b.billNo||'')}" placeholder="Optional"></div></div>
     <div class="grid2" style="margin-top:10px"><div><label class="f">Date</label><input type="date" id="rDate" value="${esc(b.date)}"></div>
     <div><label class="f">Type</label><select id="rCat">${Object.entries(CATS).map(([k,c])=>`<option value="${k}" ${k===b.category?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div></div>
     <h3 style="margin-top:18px">Items <span id="rCount" style="text-transform:none;letter-spacing:0"></span></h3>
@@ -1121,6 +1167,7 @@ function reviewSheet(bill, isNew, newArch){
     <button class="btn ghost block sm" id="rAdd" style="margin-top:10px">+ Add item</button>
     <div class="card row between" style="margin-top:14px"><span class="small muted">Items add up to</span><b id="rSum"></b></div>
     <div class="grid2" style="margin-top:10px;align-items:end"><div><label class="f">Bill total (₹)</label><input type="number" inputmode="decimal" step="any" id="rTotal" value="${b.total||''}" placeholder="Optional"></div><div id="rDiff"></div></div>
+    </div>
   </div><div class="ft">${isNew?'':`<button class="btn danger" id="rDel" style="flex:0 0 auto">Delete</button>`}<button class="btn ghost" data-close>Cancel</button><button class="btn" id="rSave">Save bill</button></div>`, s=>{
     const box=s.querySelector('#rItems');
     const ph=s.querySelector('#rPhotos');
@@ -1144,6 +1191,23 @@ function reviewSheet(bill, isNew, newArch){
       const tot=+s.querySelector('#rTotal').value; const d=tot?tot-sum:0;
       s.querySelector('#rDiff').innerHTML = tot && Math.abs(d)>Math.max(2,tot*0.01) ? `<div class="note warn tiny">Off by ${money(Math.abs(d))} — an item may be missing or misread.</div>` : (tot?`<div class="note info tiny">Matches the bill total ✓</div>`:''); };
     const redraw=()=>{ box.innerHTML=b.items.map(rowHtml).join(''); sync(); };
+    // read-only summary shown first after a scan; "Edit" opens the form
+    let editing=!fromScan;
+    const viewHtml=()=>{ sync();
+      const v=id=>s.querySelector(id).value, cat=CATS[v('#rCat')]||CATS.other, tot=+v('#rTotal')||0, items=b.items.filter(i=>(i.name||i.canon)||i.price);
+      const sum=items.reduce((x,i)=>x+(+i.price||0),0), d=tot?tot-sum:0;
+      return `<div class="card" style="padding:14px 14px 6px">
+        <div class="row between" style="align-items:flex-start"><div style="min-width:0"><div style="font-weight:800;font-size:17px">${esc(v('#rStore')||'Unknown store')}</div>
+          <div class="row" style="flex-wrap:wrap;gap:6px;margin-top:8px"><span class="chip">${cat.icon} ${cat.label}</span><span class="chip">${dateLabel(v('#rDate')||today())}</span>${v('#rBillNo')?`<span class="chip">Bill ${esc(v('#rBillNo'))}</span>`:''}</div></div>
+          <button class="btn ghost sm" id="rEdit" style="flex:none">${'<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4z"/></svg>'} Edit</button></div>
+        <table class="t" style="margin-top:10px"><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Amount</th></tr></thead><tbody>
+        ${items.map(r=>{ const e=enrich(r); return `<tr><td><b>${esc(e.canon||e.name)}</b>${e.name&&e.name!==e.canon?`<div class="tiny faint">${esc(e.name)}</div>`:''}<div class="tiny faint">${money(e.unitPrice)}/${UNIT_LABEL[e.base]}</div></td><td class="n">${+(+e.qty).toFixed(3)} ${e.unit}</td><td class="n">${money(e.price)}</td></tr>`; }).join('') || `<tr><td colspan="3" class="muted small">No items yet — tap Edit to add them.</td></tr>`}
+        </tbody><tfoot><tr><td><b>Items total</b></td><td></td><td class="n"><b>${money(sum)}</b></td></tr>${tot?`<tr><td class="muted">Bill total</td><td></td><td class="n">${money(tot)}</td></tr>`:''}</tfoot></table>
+        ${tot ? (Math.abs(d)>Math.max(2,tot*0.01) ? `<div class="note warn tiny" style="margin:4px 0 10px">Items are off by ${money(Math.abs(d))} from the bill total — an item may be missing or misread. Tap Edit to fix.</div>` : `<div class="note info tiny" style="margin:4px 0 10px">Items match the bill total ✓</div>`) : '<div style="height:8px"></div>'}
+      </div>`; };
+    const setEditing=on=>{ editing=on; s.querySelector('#rForm').classList.toggle('hide',!on); const vw=s.querySelector('#rView'); vw.classList.toggle('hide',on);
+      if(!on){ vw.innerHTML=viewHtml(); vw.querySelector('#rEdit').onclick=()=>{ setEditing(true); s.querySelector('#rForm').scrollIntoView({block:'start'}); }; } };
+    s.querySelector('#rDoneEdit')&&(s.querySelector('#rDoneEdit').onclick=()=>setEditing(false));
     box.addEventListener('input',e=>{ const r=e.target.closest('.itemrow'); if(!r) return; const it=b.items[+r.dataset.i];
       if(e.target.dataset.f==='name' && (!it.canon || it.canon===it._lastName)){ const c=r.querySelector('[data-f=canon]'); c.value=e.target.value; it._lastName=e.target.value; }
       sync(); });
@@ -1161,6 +1225,7 @@ function reviewSheet(bill, isNew, newArch){
     dupCheck();
     if(isNew && lastDup.length) toast('⚠️ This bill may already be saved');
     sync();
+    setEditing(editing);
     if(!isNew) s.querySelector('#rDel').onclick=()=>confirmSheet('Delete this bill?','Its items will be removed from your price history.','Delete',async()=>{ await deleteBill(b.id); toast('Bill deleted'); });
     s.querySelector('#rSave').onclick=async()=>{
       sync();
@@ -1272,6 +1337,74 @@ function reportCsv(){ const R=S.rep; if(!R.b) return ''; const c=compare(R.type,
   const rows=[['item','per',periodLabel(R.b,R.type)+' avg',periodLabel(R.a,R.type)+' avg','change_%']];
   for(const r of c.rows) rows.push([r.canon,UNIT_LABEL[r.base],r.b.toFixed(2),r.a.toFixed(2),r.chg.toFixed(1)]);
   return rows.map(r=>r.map(csvCell).join(',')).join('\n'); }
+/* ============ Downloads: CSV / Excel / PDF ============
+   Excel (SheetJS) and PDF (jsPDF + AutoTable) libraries load only the first time they're used. */
+const LIBS={ xlsx:'https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js', jspdf:'https://cdn.jsdelivr.net/npm/jspdf@2.5.1/dist/jspdf.umd.min.js', autotable:'https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.2/dist/jspdf.plugin.autotable.min.js' };
+const libLoads={}; const lib=k=>libLoads[k] ||= loadScript(LIBS[k]).catch(e=>{ delete libLoads[k]; throw e; });
+const typeName = cat => cat==='all' ? 'All types' : CATS[cat].label;
+function reportData(){
+  const R=S.rep; if(!R.b) return null; const c=compare(R.type,R.a,R.b,R.cat);
+  const A=periodLabel(R.a,R.type), B=periodLabel(R.b,R.type);
+  return { kind:'report', file:`price-report-${R.a}`, title:'Price report',
+    sub:`${R.type==='fy'?'Financial year':'Monthly'}: ${A} compared with ${B}  ·  ${typeName(R.cat)}`,
+    summary:[['Average price change (weighted by spend)', c.basket==null?'-':pctFmt(c.basket)], ['Spend in '+A, money(c.spendA,0)], ['Spend in '+B, money(c.spendB,0)],
+      ['Items compared', String(c.rows.length)], ['Prices up / down', `${c.rows.filter(r=>r.chg>0.5).length} up · ${c.rows.filter(r=>r.chg<-0.5).length} down`]],
+    head:['Item','Per',`Avg price ${B}`,`Avg price ${A}`,'Change %'],
+    rows:c.rows.map(r=>[r.canon, UNIT_LABEL[r.base], +r.b.toFixed(2), +r.a.toFixed(2), +r.chg.toFixed(1)]), money:[2,3], pct:4, widths:[30,6,16,16,10] };
+}
+function allData(cat){
+  cat=cat||'all';
+  const ps=allPurchases(cat).sort((a,b)=>a.date.localeCompare(b.date)||String(a.store).localeCompare(String(b.store)));
+  return { kind:'all', file:`all-purchases${cat==='all'?'':'-'+cat}`, title:'All purchases', sub:`${typeName(cat)}  ·  ${ps.length} item lines  ·  ${new Set(ps.map(p=>p.billId)).size} bills`, summary:[],
+    head:['Date','Store','Type','Item','Track as','Qty','Unit','Amount','Price per unit','Per'],
+    rows:ps.map(p=>[p.date, p.store||'', (CATS[p.category]||CATS.other).label, p.name, p.canon, +(+p.qty).toFixed(3), p.unit, +p.price.toFixed(2), +p.unitPrice.toFixed(2), UNIT_LABEL[p.base]]),
+    money:[7,8], widths:[11,24,13,26,20,7,6,11,13,6] };
+}
+const toCsv = d => [d.head,...d.rows].map(r=>r.map(csvCell).join(',')).join('\n');
+async function toXlsx(d){
+  await lib('xlsx');
+  const top=[[`Bill Ledger — ${d.title}`],[d.sub],...(d.summary.length?[[],...d.summary]:[]),[]];
+  const ws=XLSX.utils.aoa_to_sheet([...top, d.head, ...d.rows]);
+  ws['!cols']=d.widths.map(w=>({wch:w}));
+  const first=top.length+1; // 0-based row of first data line
+  for(let r=0;r<d.rows.length;r++){ for(const c of d.money){ const ref=XLSX.utils.encode_cell({r:first+r,c}); if(ws[ref]) ws[ref].z='#,##0.00'; }
+    if(d.pct!=null){ const ref=XLSX.utils.encode_cell({r:first+r,c:d.pct}); if(ws[ref]) ws[ref].z='+0.0;-0.0;0.0'; } }
+  ws['!autofilter']={ref:XLSX.utils.encode_range({s:{r:first-1,c:0},e:{r:first-1+d.rows.length,c:d.head.length-1}})};
+  const wb=XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, d.kind==='report'?'Price report':'Purchases');
+  return new Blob([XLSX.write(wb,{bookType:'xlsx',type:'array'})],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+}
+// The built-in PDF fonts have no ₹, arrows or emoji: use plain equivalents.
+const pdfText = t => String(t).replace(/₹/g,'Rs. ').replace(/[→]/g,'->').replace(/[—–]/g,'-').replace(/·/g,'|').replace(/[^\x00-\xFF]/g,'');
+async function toPdf(d){
+  await lib('jspdf'); await lib('autotable');
+  const wide=d.head.length>6, doc=new window.jspdf.jsPDF({orientation:wide?'landscape':'portrait', unit:'pt', format:'a4', compress:true});
+  const W=doc.internal.pageSize.getWidth(), M=40; let y=M+6;
+  doc.setFont('helvetica','bold'); doc.setFontSize(18); doc.setTextColor(20,20,19); doc.text(pdfText(d.title),M,y);
+  doc.setFont('helvetica','normal'); doc.setFontSize(10); doc.setTextColor(110,110,104); y+=18; doc.text(pdfText(d.sub),M,y);
+  if(d.summary.length){ y+=22; doc.setFontSize(10.5);
+    for(const [k,v] of d.summary){ doc.setTextColor(110,110,104); doc.text(pdfText(k),M,y); doc.setTextColor(20,20,19); doc.setFont('helvetica','bold'); doc.text(pdfText(v),M+250,y); doc.setFont('helvetica','normal'); y+=15; } }
+  const fmtCell=(v,i)=> d.money.includes(i) ? 'Rs. '+(+v).toLocaleString('en-IN',{minimumFractionDigits:2,maximumFractionDigits:2}) : i===d.pct ? ((v>0?'+':'')+(+v).toFixed(1)+'%') : pdfText(v);
+  const right={}; [...d.money, ...(d.pct!=null?[d.pct]:[]), ...(d.kind==='all'?[5]:[])].forEach(i=>right[i]={halign:'right'});
+  doc.autoTable({ startY:y+10, margin:{left:M,right:M}, head:[d.head.map(pdfText)], body:d.rows.map(r=>r.map(fmtCell)),
+    styles:{font:'helvetica',fontSize:wide?8:9.5,cellPadding:5,textColor:[20,20,19],lineColor:[230,228,221],lineWidth:0.5},
+    headStyles:{fillColor:[31,111,92],textColor:255,fontStyle:'bold'}, alternateRowStyles:{fillColor:[247,246,242]}, columnStyles:right,
+    didParseCell:h=>{ if(h.section==='body' && h.column.index===d.pct){ const v=d.rows[h.row.index][d.pct]; if(v>0.5) h.cell.styles.textColor=[214,69,69]; else if(v<-0.5) h.cell.styles.textColor=[42,120,214]; } },
+    didDrawPage:()=>{ const H=doc.internal.pageSize.getHeight(); doc.setFontSize(8.5); doc.setTextColor(150,150,145);
+      doc.text(`Bill Ledger  |  generated ${dateLabel(today())}`, M, H-20); doc.text(`Page ${doc.internal.getNumberOfPages()}`, W-M, H-20, {align:'right'}); } });
+  return doc.output('blob');
+}
+async function exportData(which, fmt){
+  const d = which==='report' ? reportData() : allData(S.tab==='reports'?S.rep.cat:'all');
+  if(!d || !d.rows.length){ toast(which==='report' ? 'Nothing to download — pick two periods that both have bills' : 'No purchases to download yet'); return; }
+  const name=`bill-ledger-${d.file}`;
+  if(fmt==='csv'){ if(STANDALONE){ downloadFile(name+'.csv', '\ufeff'+toCsv(d), 'text/csv'); toast('CSV downloaded'); return; } return copyCsv(toCsv(d), d.file); }
+  if(!STANDALONE){ toast('Excel and PDF downloads work in the installed app — CSV was copied instead'); return copyCsv(toCsv(d), d.file); }
+  toast(fmt==='pdf'?'Preparing PDF…':'Preparing Excel file…');
+  try{
+    if(fmt==='xlsx'){ downloadFile(name+'.xlsx', await toXlsx(d)); toast('Excel file downloaded'); }
+    else { downloadFile(name+'.pdf', await toPdf(d)); toast('PDF downloaded'); }
+  }catch(e){ toast('Could not create the file — check your internet connection and try again'); }
+}
 async function copyCsv(t, name){ if(!t){ toast('Nothing to copy yet'); return; }
   if (STANDALONE){ downloadFile((name||'bill-ledger')+'-'+today()+'.csv', t, 'text/csv'); toast('CSV downloaded — open in Excel or Google Sheets'); return; } try{ await navigator.clipboard.writeText(t); toast('Copied — paste into Excel or Google Sheets'); }catch(e){ toast('Copy was blocked by the browser'); } }
 
@@ -1308,6 +1441,10 @@ async function removeDemo(){ const ds=S.bills.filter(b=>b.demo); if(S.mode==='cl
 
 /* ============ wiring ============ */
 document.addEventListener('click',e=>{
+  const ddBtn=e.target.closest('[data-dd]'), dlBtn=e.target.closest('[data-dl]');
+  document.querySelectorAll('.dd.open').forEach(d=>{ if(!ddBtn || d!==ddBtn.parentElement){ d.classList.remove('open'); d.querySelector('[data-dd]').setAttribute('aria-expanded','false'); } });
+  if(ddBtn){ const d=ddBtn.parentElement, on=!d.classList.contains('open'); d.classList.toggle('open',on); ddBtn.setAttribute('aria-expanded',String(on)); return; }
+  if(dlBtn){ const [w,f]=dlBtn.dataset.dl.split(':'); exportData(w,f); return; }
   const t=e.target.closest('[data-tab],[data-act],[data-delbill],[data-bill],[data-item],[data-close]'); if(!t) return;
   if(t.dataset.delbill){ deleteWithUndo(t.dataset.delbill); return; }
   if(t.dataset.tab){ S.tab=t.dataset.tab; render(); window.scrollTo(0,0); return; }
@@ -1365,7 +1502,7 @@ async function deleteWithUndo(id){
 $('#tabScan').onclick=scanChooser;
 $('#btnSettings').onclick=settingsSheet;
 $('#cloudBadge').onclick=settingsSheet;
-document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
+document.addEventListener('keydown',e=>{ if(e.key==='Escape'){ const o=document.querySelector('.dd.open'); if(o){ o.classList.remove('open'); return; } closeSheet(); } });
 
 render();
 (async()=>{

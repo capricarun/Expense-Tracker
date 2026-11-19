@@ -6,7 +6,7 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 
 ## What it does
 
-- **Scan bills.** Take a photo of a bill, or pick several photos for a long one. Claude reads the store, date, and every item with its quantity and amount.
+- **Scan bills.** Take a photo of a bill, or pick several photos for a long one. With several photos, you can remove any wrong ones before the bill is read. Saved bills can have photos added or deleted later. Claude reads the store, date, and every item with its quantity and amount.
 - **Categories.** Each bill is sorted automatically into one of these, and you can change it on the review screen:
   - Grocery, Supermarket, Essentials
   - Fashion, Textiles, Eat out
@@ -14,7 +14,7 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
   - Education, Fitness, Entertainment, Other
   
   Reports can be filtered by any category you have bills in.
-- **Check before saving.** Fix anything that was misread. A warning appears if the items don't add up to the bill total.
+- **Check before saving.** After a scan you see a read-only summary of the bill. Tap **Edit** only if something was misread. A warning appears if the items don't add up to the bill total.
 - **Duplicate alert.** If a scanned bill looks like one you've already saved, you get a warning and must confirm before saving. A bill counts as a likely duplicate if any of these match:
   - the same bill number
   - the same store, date and total
@@ -29,7 +29,7 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
   - spending over time
 - **Item history.** A price chart, averages for each financial year, and every purchase.
 - **Cloud backup.** Sign in with email and password and every bill is copied to your private cloud account. If you lose or reset your phone, sign in on any device and everything comes back. It works offline and catches up when you're back online.
-- **Export.** Download CSV files for Excel or Google Sheets, plus a full JSON backup and restore.
+- **Export.** Reports has **Download report ▾** and **Download all purchases ▾** menus. Each offers CSV, Excel (.xlsx) or PDF, filtered by the selected Type. Settings also has a full JSON backup and restore.
 - **Works like an app.** You can install it on your home screen and it opens offline.
 
 ## Use it on your phone
