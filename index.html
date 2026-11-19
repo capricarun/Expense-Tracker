@@ -1,0 +1,752 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Bill Ledger — scan bills, track prices</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<meta name="theme-color" content="#1f6f5c">
+<meta name="description" content="Scan grocery, supermarket and textile bills and track how item prices change by month and financial year.">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" type="image/png" sizes="192x192" href="icons/icon-192.png">
+<link rel="apple-touch-icon" href="icons/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Bill Ledger">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<style>
+:root{
+  --bg:#f3f2ee; --card:#ffffff; --ink:#141413; --ink2:#55544f; --ink3:#8a8983; --line:#e6e4dd;
+  --accent:#1f6f5c; --accent-ink:#ffffff; --accent-soft:#e3f0eb;
+  --up:#d64545; --up-soft:#fbe9e8; --down:#2a78d6; --down-soft:#e6effa; --flat:#9a9993;
+  --warn:#b26b00; --warn-soft:#fdf1dc;
+  --series:#2a78d6; --grid:#ecebe6;
+  --r:16px; --shadow:0 1px 2px rgba(0,0,0,.04),0 4px 14px rgba(0,0,0,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root{
+    --bg:#121211; --card:#1c1c1b; --ink:#f0efec; --ink2:#c3c2b7; --ink3:#8f8e88; --line:#2c2c2a;
+    --accent:#3fae8f; --accent-ink:#0d1f1a; --accent-soft:#1d3029;
+    --up:#e66767; --up-soft:#3a1f1f; --down:#3987e5; --down-soft:#1b2a3d;
+    --warn:#e0a03a; --warn-soft:#3a2d17; --series:#3987e5; --grid:#2a2a28;
+    --shadow:none;
+  }
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{font-family:"Plus Jakarta Sans",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;background:var(--bg);color:var(--ink);font-size:15px;line-height:1.4;-webkit-font-smoothing:antialiased}
+button,input,select{font:inherit;color:inherit}
+button{cursor:pointer;border:0;background:none}
+.app{max-width:520px;margin:0 auto;min-height:100%;display:flex;flex-direction:column;position:relative}
+header.top{display:flex;align-items:center;justify-content:space-between;padding:18px 18px 8px}
+.brand{display:flex;align-items:center;gap:10px;font-weight:800;font-size:18px;letter-spacing:-.02em}
+.logo{width:32px;height:32px;border-radius:10px;background:var(--accent);display:grid;place-items:center;color:var(--accent-ink)}
+.iconbtn{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;color:var(--ink2)}
+.iconbtn:hover{background:var(--card)}
+main{flex:1;padding:6px 16px 110px}
+h2{font-size:22px;font-weight:800;letter-spacing:-.02em;margin:6px 2px 14px}
+h3{font-size:13px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--ink3);margin:22px 2px 10px}
+.card{background:var(--card);border-radius:var(--r);box-shadow:var(--shadow);padding:16px}
+.muted{color:var(--ink2)} .faint{color:var(--ink3)} .small{font-size:13px} .tiny{font-size:12px}
+.row{display:flex;align-items:center;gap:10px}
+.between{justify-content:space-between}
+.grid2{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+.tile .label{font-size:12px;color:var(--ink3);font-weight:600}
+.tile .val{font-size:24px;font-weight:800;letter-spacing:-.02em;margin-top:4px;font-variant-numeric:tabular-nums}
+.tile .sub{font-size:12px;margin-top:2px;color:var(--ink2)}
+.hero{background:var(--accent);color:var(--accent-ink);border-radius:20px;padding:18px;box-shadow:var(--shadow)}
+.hero .label{opacity:.8;font-size:13px;font-weight:600}
+.hero .val{font-size:34px;font-weight:800;letter-spacing:-.03em;margin:4px 0 2px;font-variant-numeric:tabular-nums}
+.hero .sub{opacity:.85;font-size:13px}
+.btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;height:46px;padding:0 18px;border-radius:14px;font-weight:700;background:var(--accent);color:var(--accent-ink)}
+.btn.ghost{background:var(--card);color:var(--ink);box-shadow:inset 0 0 0 1px var(--line)}
+.btn.danger{background:var(--up-soft);color:var(--up)}
+.btn.sm{height:36px;padding:0 12px;border-radius:11px;font-size:13px}
+.btn.block{width:100%}
+.btn:disabled{opacity:.5;cursor:default}
+.list{display:flex;flex-direction:column;gap:2px}
+.li{display:flex;align-items:center;gap:12px;padding:12px;border-radius:14px;background:var(--card);text-align:left;width:100%}
+.li + .li{margin-top:6px}
+.li:hover{box-shadow:inset 0 0 0 1px var(--line)}
+.li .main{flex:1;min-width:0}
+.li .t{font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.li .s{font-size:12.5px;color:var(--ink3);margin-top:1px}
+.li .r{text-align:right;font-variant-numeric:tabular-nums;font-weight:700;white-space:nowrap}
+.avatar{width:40px;height:40px;border-radius:12px;display:grid;place-items:center;font-size:19px;flex:none;background:var(--bg)}
+.chip{display:inline-flex;align-items:center;height:32px;padding:0 12px;border-radius:999px;background:var(--card);box-shadow:inset 0 0 0 1px var(--line);font-size:13px;font-weight:600;color:var(--ink2);white-space:nowrap}
+.chip.on{background:var(--ink);color:var(--bg);box-shadow:none}
+.chips{display:flex;gap:8px;overflow-x:auto;padding-bottom:2px;scrollbar-width:none}
+.chips::-webkit-scrollbar{display:none}
+.seg{display:flex;background:var(--card);border-radius:12px;padding:3px;box-shadow:inset 0 0 0 1px var(--line)}
+.seg button{flex:1;height:34px;border-radius:9px;font-weight:700;font-size:13px;color:var(--ink2)}
+.seg button.on{background:var(--ink);color:var(--bg)}
+.badge{display:inline-flex;align-items:center;gap:3px;font-size:12.5px;font-weight:700;padding:2px 8px;border-radius:999px;font-variant-numeric:tabular-nums}
+.badge.up{background:var(--up-soft);color:var(--up)} .badge.down{background:var(--down-soft);color:var(--down)} .badge.flat{background:var(--bg);color:var(--ink3)}
+.empty{text-align:center;padding:34px 18px}
+.empty .big{font-size:42px}
+.empty p{color:var(--ink2);margin:8px auto 18px;max-width:300px}
+select,input[type=text],input[type=number],input[type=date],input[type=search]{height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%;outline:none}
+select:focus,input:focus{border-color:var(--accent)}
+label.f{display:block;font-size:12px;font-weight:700;color:var(--ink3);margin:0 0 5px 2px}
+/* bottom nav */
+nav.tabs{position:fixed;left:0;right:0;bottom:0;z-index:20;display:flex;justify-content:center;pointer-events:none}
+nav.tabs .bar{pointer-events:auto;width:100%;max-width:520px;display:grid;grid-template-columns:repeat(5,1fr);align-items:end;background:color-mix(in srgb,var(--card) 92%,transparent);backdrop-filter:blur(12px);border-top:1px solid var(--line);padding:8px 8px calc(10px + env(safe-area-inset-bottom))}
+nav.tabs button{display:flex;flex-direction:column;align-items:center;gap:3px;font-size:11px;font-weight:700;color:var(--ink3);padding:4px 0}
+nav.tabs button.on{color:var(--accent)}
+nav.tabs .scan{width:58px;height:58px;border-radius:20px;background:var(--accent);color:var(--accent-ink);display:grid;place-items:center;margin:-26px auto 0;box-shadow:0 6px 18px color-mix(in srgb,var(--accent) 40%,transparent)}
+/* sheets */
+.scrim{position:fixed;inset:0;background:rgba(0,0,0,.4);z-index:40;display:none;align-items:flex-end;justify-content:center}
+.scrim.show{display:flex}
+.sheet{background:var(--bg);width:100%;max-width:520px;max-height:94vh;border-radius:22px 22px 0 0;display:flex;flex-direction:column;animation:up .22s ease}
+@media (min-width:700px){.scrim{align-items:center}.sheet{border-radius:22px;max-height:88vh}}
+@keyframes up{from{transform:translateY(30px);opacity:.4}to{transform:none;opacity:1}}
+.sheet .hd{display:flex;align-items:center;justify-content:space-between;padding:16px 16px 8px}
+.sheet .hd b{font-size:17px;font-weight:800}
+.sheet .bd{overflow:auto;padding:4px 16px 16px;flex:1}
+.sheet .ft{padding:12px 16px calc(14px + env(safe-area-inset-bottom));border-top:1px solid var(--line);display:flex;gap:10px;background:var(--bg);border-radius:0 0 22px 22px}
+.sheet .ft .btn{flex:1}
+/* review rows */
+.itemrow{background:var(--card);border-radius:14px;padding:10px;margin-top:8px;display:grid;grid-template-columns:1fr 64px 70px 88px 30px;gap:6px;align-items:center}
+.itemrow input,.itemrow select{height:36px;font-size:13.5px;padding:0 8px;border-radius:9px}
+.itemrow .nm{grid-column:1/-1;display:grid;grid-template-columns:1fr 1fr;gap:6px}
+.itemrow .x{width:30px;height:30px;border-radius:9px;color:var(--ink3);display:grid;place-items:center}
+.itemrow .x:hover{background:var(--up-soft);color:var(--up)}
+.itemrow .pu{grid-column:1/-1;font-size:11.5px;color:var(--ink3);padding-left:2px}
+.colhd{display:grid;grid-template-columns:1fr 64px 70px 88px 30px;gap:6px;font-size:11px;font-weight:700;color:var(--ink3);padding:10px 10px 0;text-transform:uppercase;letter-spacing:.04em}
+.note{border-radius:12px;padding:10px 12px;font-size:13px}
+.note.warn{background:var(--warn-soft);color:var(--warn)}
+.note.info{background:var(--accent-soft);color:var(--accent)}
+.preview{display:flex;gap:8px;overflow-x:auto;margin:6px 0 4px}
+.preview img{height:84px;border-radius:10px;object-fit:cover;box-shadow:var(--shadow)}
+.spinner{width:42px;height:42px;border-radius:50%;border:4px solid var(--accent-soft);border-top-color:var(--accent);animation:spin .9s linear infinite;margin:0 auto}
+@keyframes spin{to{transform:rotate(360deg)}}
+.stream{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink3);max-height:110px;overflow:hidden;white-space:pre-wrap;margin-top:14px;text-align:left;mask-image:linear-gradient(transparent,#000 40%)}
+/* diverging bars */
+.dv{display:grid;grid-template-columns:minmax(0,1fr) 130px;gap:4px 12px;align-items:center}
+.dvrow{display:contents}
+.dvrow .nm{padding:9px 0;border-bottom:1px solid var(--line);min-width:0}
+.dvrow .nm .t{font-weight:700;font-size:14px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.dvrow .nm .s{font-size:12px;color:var(--ink3);font-variant-numeric:tabular-nums}
+.dvrow .bar{position:relative;height:100%;border-bottom:1px solid var(--line);display:flex;align-items:center}
+.dvrow .axis{position:absolute;left:50%;top:6px;bottom:6px;width:1px;background:var(--ink3);opacity:.5}
+.dvrow .fill{position:absolute;height:12px;border-radius:4px}
+.dvrow .fill.up{left:50%;background:var(--up);border-radius:0 4px 4px 0}
+.dvrow .fill.down{right:50%;background:var(--down);border-radius:4px 0 0 4px}
+.dvrow .pct{position:absolute;font-size:12px;font-weight:800;font-variant-numeric:tabular-nums}
+.dvrow:hover .nm .t{color:var(--accent)}
+/* chart */
+.chartwrap{position:relative}
+.chartwrap svg{display:block;width:100%;height:auto;overflow:visible}
+.tip{position:absolute;pointer-events:none;background:var(--ink);color:var(--bg);padding:7px 10px;border-radius:10px;font-size:12px;white-space:nowrap;transform:translate(-50%,-110%);opacity:0;transition:opacity .1s;z-index:3;font-variant-numeric:tabular-nums}
+.tip b{font-weight:800}
+table.t{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
+table.t th{text-align:left;font-size:11px;color:var(--ink3);text-transform:uppercase;letter-spacing:.04em;font-weight:700;padding:8px 6px;border-bottom:1px solid var(--line)}
+table.t td{padding:9px 6px;border-bottom:1px solid var(--line)}
+table.t .n{text-align:right}
+.toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
+.toast.show{opacity:1}
+.legend{display:flex;gap:14px;font-size:12px;color:var(--ink2);margin-top:8px}
+.legend i{display:inline-block;width:10px;height:10px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+.hide{display:none!important}
+.status-dot{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+a{color:var(--accent)}
+</style>
+</head>
+<body>
+<div class="app">
+  <header class="top">
+    <div class="brand"><div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div>Bill Ledger</div>
+    <button class="iconbtn" id="btnSettings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+  </header>
+  <main id="view"></main>
+</div>
+
+<nav class="tabs"><div class="bar">
+  <button data-tab="home" class="on"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11l9-7 9 7v9a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/></svg>Home</button>
+  <button data-tab="bills"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6M9 16h3"/></svg>Bills</button>
+  <button id="tabScan" aria-label="Scan a bill"><span class="scan"><svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 8V6a2 2 0 0 1 2-2h2M16 4h2a2 2 0 0 1 2 2v2M20 16v2a2 2 0 0 1-2 2h-2M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M8 12h8"/></svg></span></button>
+  <button data-tab="items"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.6 13.4l-7.2 7.2a2 2 0 0 1-2.8 0L3 13V3h10l7.6 7.6a2 2 0 0 1 0 2.8z"/><circle cx="7.5" cy="7.5" r="1.5"/></svg>Items</button>
+  <button data-tab="reports"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 20V10M10 20V4M16 20v-7M22 20H2"/></svg>Reports</button>
+</div></nav>
+
+<div class="scrim" id="scrim"><div class="sheet" id="sheet"></div></div>
+<div class="toast" id="toast"></div>
+<input type="file" id="fileCam" accept="image/*" capture="environment" class="hide">
+<input type="file" id="fileGal" accept="image/*" multiple class="hide">
+
+<script>
+/* ============ utilities ============ */
+const $ = s => document.querySelector(s);
+const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const inr0 = new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',maximumFractionDigits:0});
+const inr2 = new Intl.NumberFormat('en-IN',{style:'currency',currency:'INR',minimumFractionDigits:2,maximumFractionDigits:2});
+const money = (n, d) => (d===0||Math.abs(n)>=1000 ? inr0 : inr2).format(n||0);
+const pctFmt = p => (p>0?'+':'') + (Math.abs(p)<10 ? p.toFixed(1) : Math.round(p)) + '%';
+const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+const ym = d => d.slice(0,7);
+const ymLabel = k => { const [y,m]=k.split('-'); return MONTHS[+m-1]+' '+y; };
+const fyOf = d => { const y=+d.slice(0,4), m=+d.slice(5,7); const s = m>=4?y:y-1; return 'FY '+s+'-'+String(s+1).slice(2); };
+const fyStartYear = k => +k.slice(3,7);
+const today = () => new Date().toISOString().slice(0,10);
+const dateLabel = d => { try{ const [y,m,dd]=d.split('-'); return (+dd)+' '+MONTHS[+m-1]+' '+y; }catch(e){ return d; } };
+const uid = () => 'b-' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
+const CATS = { grocery:{label:'Grocery',icon:'🧺'}, supermarket:{label:'Supermarket',icon:'🛒'}, textile:{label:'Textiles',icon:'🧵'}, other:{label:'Other',icon:'🧾'} };
+const UNIT_LABEL = { kg:'kg', l:'L', pc:'pc', m:'m' };
+function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2400); }
+
+/* unit normalisation: everything becomes price per kg / L / piece / metre */
+function normUnit(u){
+  u = String(u||'').toLowerCase().replace(/[^a-z]/g,'');
+  if (['g','gm','gms','gram','grams','gr'].includes(u)) return 'g';
+  if (['kg','kgs','kilo','kilogram','kilograms'].includes(u)) return 'kg';
+  if (['ml','mls','millilitre','milliliter'].includes(u)) return 'ml';
+  if (['l','lt','ltr','ltrs','litre','liter','litres','liters'].includes(u)) return 'l';
+  if (['m','mtr','mtrs','meter','metre','meters','metres'].includes(u)) return 'm';
+  if (['cm'].includes(u)) return 'cm';
+  return 'pc';
+}
+function enrich(it){
+  const unit = normUnit(it.unit);
+  let qty = +it.qty; if (!(qty>0)) qty = 1;
+  const price = +it.price || 0;
+  let base, q;
+  if (unit==='g'){ base='kg'; q=qty/1000; } else if (unit==='kg'){ base='kg'; q=qty; }
+  else if (unit==='ml'){ base='l'; q=qty/1000; } else if (unit==='l'){ base='l'; q=qty; }
+  else if (unit==='cm'){ base='m'; q=qty/100; } else if (unit==='m'){ base='m'; q=qty; }
+  else { base='pc'; q=qty; }
+  const canon = (it.canon||it.name||'Item').trim();
+  return { name:(it.name||canon).trim(), canon, qty, unit, price, base, qBase:q, unitPrice: q>0 ? price/q : price };
+}
+const itemKey = it => it.canon.toLowerCase().replace(/\s+/g,' ') + '|' + it.base;
+
+/* ============ data layer: claude db (synced) with local fallback ============ */
+const S = { bills:[], mode:'loading', uid:null, col:null, tab:'home', rep:{type:'month', a:null, b:null, cat:'all'}, itemQ:'' };
+let db=null, sample=null;
+/* Standalone = opened from GitHub Pages / home screen, not inside Claude */
+const STANDALONE = !(window.claude && window.claude.use);
+const KEY_K='billledger.apikey', MODEL_K='billledger.model';
+const getKey = () => { try{ return localStorage.getItem(KEY_K)||''; }catch(e){ return ''; } };
+const getModel = () => { try{ return localStorage.getItem(MODEL_K)||'claude-sonnet-5-5'; }catch(e){ return 'claude-sonnet-5-5'; } };
+const aiAvailable = () => !!sample || (STANDALONE && !!getKey());
+const blobToB64 = b => new Promise((res,rej)=>{ const r=new FileReader(); r.onload=()=>res(String(r.result).split(',')[1]); r.onerror=rej; r.readAsDataURL(b); });
+/* Reads the bill with the Anthropic Messages API, using the user's own key (kept in this browser only). */
+async function apiRead(prompt, blobs, signal, onText){
+  const content=[];
+  for (const b of blobs) content.push({type:'image', source:{type:'base64', media_type:'image/jpeg', data: await blobToB64(b)}});
+  content.push({type:'text', text: prompt});
+  const r = await fetch('https://api.anthropic.com/v1/messages', { method:'POST', signal,
+    headers:{'content-type':'application/json','x-api-key':getKey(),'anthropic-version':'2023-06-01','anthropic-dangerous-direct-browser-access':'true'},
+    body: JSON.stringify({ model:getModel(), max_tokens:8000, stream:true, messages:[{role:'user', content}] }) });
+  if (!r.ok){ let m=''; try{ m=(await r.json()).error?.message||''; }catch(e){}
+    throw {code: r.status===429?'rate_limited':'api', message: r.status===401?'Your API key was not accepted. Check it in Settings.':(m||('Bill reading failed ('+r.status+').'))}; }
+  const rd=r.body.getReader(), dec=new TextDecoder(); let buf='', text='';
+  for(;;){ const {done,value}=await rd.read(); if(done) break; buf+=dec.decode(value,{stream:true});
+    let i; while((i=buf.indexOf('\n'))>=0){ const line=buf.slice(0,i).trim(); buf=buf.slice(i+1);
+      if(!line.startsWith('data:')) continue; try{ const ev=JSON.parse(line.slice(5));
+        if(ev.type==='content_block_delta' && ev.delta?.type==='text_delta'){ text+=ev.delta.text; onText&&onText({text}); }
+        if(ev.type==='error') throw {message: ev.error?.message||'Bill reading failed.'}; }catch(e){ if(e&&e.message&&!(e instanceof SyntaxError)) throw e; } } }
+  return { text };
+}
+function downloadFile(name, text, type){
+  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click();
+  setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
+}
+const LKEY='billledger.v1';
+function localLoad(){ try{ return JSON.parse(localStorage.getItem(LKEY)||'[]'); }catch(e){ return []; } }
+function localSave(){ try{ localStorage.setItem(LKEY, JSON.stringify(S.bills)); }catch(e){} }
+
+async function initData(){
+  let loaded=false;
+  const timer=setTimeout(()=>{ if(!loaded){ S.mode = S.mode==='loading' ? 'local' : S.mode; if(S.mode==='local'){ S.bills=localLoad(); } render(); } }, 10000);
+  try{
+    const [d,u] = await Promise.all([claude.use('db'), claude.use('user')]);
+    const id = u ? await u.id() : null;
+    if (d && id){
+      db=d; S.uid=id; S.col=db.collection('data/users/'+id);
+      S.col.where('kind','==','bill').onSnapshot(snap=>{
+        S.bills = snap.docs.map(x=>({...x.data(), id:x.id}));
+        S.mode='cloud';
+        if(!snap.metadata.fromCache){ loaded=true; clearTimeout(timer); }
+        render();
+      }, err=>{ loaded=true; clearTimeout(timer); S.mode='local'; S.bills=localLoad(); render(); toast('Cloud sync unavailable — saving on this device'); });
+      return;
+    }
+  }catch(e){}
+  loaded=true; clearTimeout(timer); S.mode='local'; S.bills=localLoad(); render();
+}
+async function saveBill(b){
+  b.kind='bill';
+  if (S.mode==='cloud'){
+    const body = JSON.parse(JSON.stringify(b)); delete body.id;
+    try{ await S.col.doc(b.id).set(body); }
+    catch(e){ toast(e && e.code==='quota_exceeded' ? 'Storage is full — delete old bills first' : 'Could not save — try again'); throw e; }
+  } else {
+    const i=S.bills.findIndex(x=>x.id===b.id); if(i>=0) S.bills[i]=b; else S.bills.push(b); localSave(); render();
+  }
+}
+async function deleteBill(id){
+  if (S.mode==='cloud'){ await S.col.doc(id).delete(); }
+  else { S.bills=S.bills.filter(b=>b.id!==id); localSave(); render(); }
+}
+
+/* ============ analytics ============ */
+function allPurchases(cat){
+  const out=[];
+  for (const b of S.bills){
+    if (cat && cat!=='all' && b.category!==cat) continue;
+    for (const raw of (b.items||[])){ const it=enrich(raw); out.push({...it, key:itemKey(it), date:b.date, store:b.store, category:b.category, billId:b.id}); }
+  }
+  return out;
+}
+const periodOf = (date,type) => type==='fy' ? fyOf(date) : ym(date);
+const periodLabel = (k,type) => type==='fy' ? k : ymLabel(k);
+function periodsList(type){
+  const s=new Set(S.bills.map(b=>periodOf(b.date,type)));
+  return [...s].sort().reverse();
+}
+function avgByItem(purchases, period, type){
+  const m=new Map();
+  for (const p of purchases){
+    if (periodOf(p.date,type)!==period) continue;
+    let e=m.get(p.key); if(!e){ e={key:p.key, canon:p.canon, base:p.base, category:p.category, spend:0, q:0, n:0}; m.set(p.key,e); }
+    e.spend+=p.price; e.q+=p.qBase; e.n++;
+  }
+  for (const e of m.values()) e.avg = e.q>0 ? e.spend/e.q : 0;
+  return m;
+}
+function compare(type, a, b, cat){
+  const ps=allPurchases(cat);
+  const A=avgByItem(ps,a,type), B=avgByItem(ps,b,type);
+  const rows=[]; let wsum=0, wchg=0;
+  for (const [k,ea] of A){ const eb=B.get(k); if(!eb||!eb.avg) continue;
+    const chg=(ea.avg-eb.avg)/eb.avg*100; rows.push({key:k, canon:ea.canon, base:ea.base, category:ea.category, a:ea.avg, b:eb.avg, chg});
+    wsum+=eb.spend; wchg+=eb.spend*chg; }
+  rows.sort((x,y)=>y.chg-x.chg);
+  const spend = (per)=> S.bills.filter(x=>(cat==='all'||x.category===cat) && periodOf(x.date,type)===per).reduce((s,x)=>s+billTotal(x),0);
+  return { rows, basket: wsum? wchg/wsum : null, spendA:spend(a), spendB:spend(b), onlyA:[...A.keys()].filter(k=>!B.has(k)).length };
+}
+const billTotal = b => (+b.total>0 ? +b.total : (b.items||[]).reduce((s,i)=>s+(+i.price||0),0));
+function itemsIndex(){
+  const ps=allPurchases('all'); const m=new Map();
+  for (const p of ps){ let e=m.get(p.key); if(!e){ e={key:p.key, canon:p.canon, base:p.base, category:p.category, list:[]}; m.set(p.key,e); } e.list.push(p); }
+  for (const e of m.values()){
+    e.list.sort((x,y)=>x.date.localeCompare(y.date));
+    e.first=e.list[0]; e.last=e.list[e.list.length-1];
+    e.chg = e.first.unitPrice ? (e.last.unitPrice-e.first.unitPrice)/e.first.unitPrice*100 : 0;
+    e.spend = e.list.reduce((s,x)=>s+x.price,0);
+  }
+  return [...m.values()];
+}
+
+/* ============ rendering ============ */
+function badge(chg){ if (chg==null || !isFinite(chg)) return ''; const c = Math.abs(chg)<0.5?'flat':(chg>0?'up':'down'); return `<span class="badge ${c}">${c==='up'?'▲':c==='down'?'▼':'•'} ${pctFmt(chg)}</span>`; }
+function render(){
+  document.querySelectorAll('nav.tabs [data-tab]').forEach(b=>b.classList.toggle('on', b.dataset.tab===S.tab));
+  const v=$('#view');
+  if (S.mode==='loading'){ v.innerHTML=`<div class="empty"><div class="spinner"></div><p>Loading your bills…</p></div>`; return; }
+  v.innerHTML = ({home:viewHome, bills:viewBills, items:viewItems, reports:viewReports})[S.tab]();
+  if (S.tab==='reports') wireReports();
+  if (S.tab==='items') wireItems();
+}
+function emptyState(){
+  return `<div class="card empty"><div class="big">🧾</div><b style="font-size:17px">Scan your first bill</b>
+  <p>Take a photo of a grocery, supermarket or textile bill. Each item and its price is read and saved, so you can see how prices change month by month and year by year.</p>
+  <div class="row" style="justify-content:center;flex-wrap:wrap"><button class="btn" data-act="scan">Scan a bill</button><button class="btn ghost" data-act="demo">Try with sample data</button></div></div>`;
+}
+function viewHome(){
+  if (!S.bills.length) return `<h2>Hello 👋</h2>` + emptyState();
+  const months=periodsList('month'); const cur=months[0], prev=months[1];
+  const spendCur=S.bills.filter(b=>ym(b.date)===cur).reduce((s,b)=>s+billTotal(b),0);
+  const spendPrev=prev?S.bills.filter(b=>ym(b.date)===prev).reduce((s,b)=>s+billTotal(b),0):0;
+  const cmp = prev ? compare('month',cur,prev,'all') : null;
+  const fys=periodsList('fy'); const fyc = fys[1] ? compare('fy',fys[0],fys[1],'all') : null;
+  const rises = cmp ? cmp.rows.filter(r=>r.chg>0.5).slice(0,4) : [];
+  const recent=[...S.bills].sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||0)-(a.createdAt||0)).slice(0,5);
+  return `<h2>${ymLabel(cur)}</h2>
+  <div class="hero"><div class="label">Spent this month</div><div class="val">${money(spendCur,0)}</div>
+  <div class="sub">${S.bills.filter(b=>ym(b.date)===cur).length} bills${prev?` · ${money(spendPrev,0)} in ${ymLabel(prev)}`:''}</div></div>
+  <div class="grid2" style="margin-top:10px">
+    <div class="card tile"><div class="label">Price change vs last month</div><div class="val">${cmp&&cmp.basket!=null?pctFmt(cmp.basket):'—'}</div><div class="sub">${cmp?cmp.rows.length+' items compared':'Need 2 months of bills'}</div></div>
+    <div class="card tile"><div class="label">${fyc?fys[0]+' vs '+fys[1].slice(3):'Financial year'}</div><div class="val">${fyc&&fyc.basket!=null?pctFmt(fyc.basket):'—'}</div><div class="sub">${fyc?fyc.rows.length+' items compared':'Need 2 FYs of bills'}</div></div>
+  </div>
+  ${rises.length?`<h3>Biggest price rises this month</h3><div class="list">${rises.map(r=>`<button class="li" data-item="${esc(r.key)}"><div class="avatar">${CATS[r.category]?.icon||'🧾'}</div><div class="main"><div class="t">${esc(r.canon)}</div><div class="s">${money(r.b)} → ${money(r.a)} /${UNIT_LABEL[r.base]}</div></div><div class="r">${badge(r.chg)}</div></button>`).join('')}</div>`:''}
+  <h3>Recent bills</h3><div class="list">${recent.map(billLi).join('')}</div>`;
+}
+function billLi(b){
+  const c=CATS[b.category]||CATS.other;
+  return `<button class="li" data-bill="${esc(b.id)}"><div class="avatar">${c.icon}</div><div class="main"><div class="t">${esc(b.store||'Unknown store')}</div><div class="s">${dateLabel(b.date)} · ${(b.items||[]).length} items${b.demo?' · sample':''}</div></div><div class="r">${money(billTotal(b))}</div></button>`;
+}
+function viewBills(){
+  if (!S.bills.length) return `<h2>Bills</h2>`+emptyState();
+  const groups={}; for (const b of S.bills){ (groups[ym(b.date)] ||= []).push(b); }
+  const keys=Object.keys(groups).sort().reverse();
+  return `<h2>Bills</h2>` + keys.map(k=>{ const bs=groups[k].sort((a,b)=>b.date.localeCompare(a.date)); const tot=bs.reduce((s,b)=>s+billTotal(b),0);
+    return `<h3 class="row between"><span>${ymLabel(k)}</span><span>${money(tot,0)}</span></h3><div class="list">${bs.map(billLi).join('')}</div>`; }).join('');
+}
+function viewItems(){
+  if (!S.bills.length) return `<h2>Items</h2>`+emptyState();
+  return `<h2>Items</h2><input type="search" id="itemQ" placeholder="Search items…" value="${esc(S.itemQ)}"><div id="itemList" style="margin-top:12px"></div>`;
+}
+function itemListHtml(){
+  const q=S.itemQ.trim().toLowerCase();
+  const xs=itemsIndex().filter(e=>!q||e.canon.toLowerCase().includes(q)).sort((a,b)=>b.list.length-a.list.length||a.canon.localeCompare(b.canon));
+  if(!xs.length) return `<p class="muted small" style="padding:10px">No items match.</p>`;
+  return `<div class="list">${xs.map(e=>`<button class="li" data-item="${esc(e.key)}"><div class="avatar">${CATS[e.category]?.icon||'🧾'}</div><div class="main"><div class="t">${esc(e.canon)}</div><div class="s">${e.list.length} purchase${e.list.length>1?'s':''} · since ${ymLabel(ym(e.first.date))}</div></div><div class="r">${money(e.last.unitPrice)}<span class="faint small">/${UNIT_LABEL[e.base]}</span><div style="margin-top:3px">${e.list.length>1?badge(e.chg):''}</div></div></button>`).join('')}</div>`;
+}
+function wireItems(){ const i=$('#itemQ'); if(!i) return; $('#itemList').innerHTML=itemListHtml(); i.oninput=()=>{ S.itemQ=i.value; $('#itemList').innerHTML=itemListHtml(); }; }
+
+function viewReports(){
+  if (!S.bills.length) return `<h2>Reports</h2>`+emptyState();
+  const R=S.rep, ps=periodsList(R.type);
+  if (!ps.includes(R.a)) R.a=ps[0];
+  if (!ps.includes(R.b) || R.b===R.a) R.b = ps[ps.indexOf(R.a)+1] || null;
+  const opt=(sel)=>ps.map(p=>`<option value="${p}" ${p===sel?'selected':''}>${periodLabel(p,R.type)}</option>`).join('');
+  let body='';
+  if (!R.b){ body=`<div class="note info" style="margin-top:14px">Add bills from at least two ${R.type==='fy'?'financial years':'months'} to compare prices.</div>`; }
+  else {
+    const c=compare(R.type,R.a,R.b,R.cat);
+    const ups=c.rows.filter(r=>r.chg>0.5).length, downs=c.rows.filter(r=>r.chg<-0.5).length;
+    const max=Math.max(5,...c.rows.map(r=>Math.abs(r.chg)));
+    const sd = c.spendB? (c.spendA-c.spendB)/c.spendB*100 : null;
+    body=`<div class="grid2" style="margin-top:14px">
+      <div class="card tile"><div class="label">Average price change</div><div class="val" style="color:${c.basket>0.5?'var(--up)':c.basket<-0.5?'var(--down)':'inherit'}">${c.basket!=null?pctFmt(c.basket):'—'}</div><div class="sub">weighted by what you spent</div></div>
+      <div class="card tile"><div class="label">Spend</div><div class="val">${money(c.spendA,0)}</div><div class="sub">${money(c.spendB,0)} before ${sd!=null?'('+pctFmt(sd)+')':''}</div></div>
+    </div>
+    <div class="card" style="margin-top:10px">
+      <div class="row between"><b>Item price change</b><span class="small faint">${ups} up · ${downs} down</span></div>
+      <div class="small faint" style="margin-top:2px">Average price per unit, ${periodLabel(R.b,R.type)} → ${periodLabel(R.a,R.type)}</div>
+      ${c.rows.length?`<div class="dv" style="margin-top:8px">${c.rows.map(r=>{ const w=Math.max(1,Math.abs(r.chg)/max*30); const up=r.chg>=0;
+        return `<button class="dvrow" data-item="${esc(r.key)}" style="all:unset;display:contents;cursor:pointer"><div class="nm"><div class="t">${esc(r.canon)}</div><div class="s">${money(r.b)} → ${money(r.a)} /${UNIT_LABEL[r.base]}</div></div>
+        <div class="bar"><span class="axis"></span><span class="fill ${up?'up':'down'}" style="width:${w}%"></span><span class="pct" style="${up?`left:calc(50% + ${w}% + 4px)`:`right:calc(50% + ${w}% + 4px)`};color:${up?'var(--up)':'var(--down)'}">${pctFmt(r.chg)}</span></div></button>`; }).join('')}</div>
+        <div class="legend"><span><i style="background:var(--up)"></i>Price went up</span><span><i style="background:var(--down)"></i>Price went down</span></div>`
+      :`<p class="small muted" style="margin-top:10px">No item was bought in both periods.</p>`}
+      ${c.onlyA?`<p class="tiny faint" style="margin-top:10px">${c.onlyA} item(s) bought only in ${periodLabel(R.a,R.type)} aren't compared.</p>`:''}
+    </div>`;
+  }
+  return `<h2>Reports</h2>
+  <div class="seg"><button data-rt="month" class="${R.type==='month'?'on':''}">Monthly</button><button data-rt="fy" class="${R.type==='fy'?'on':''}">Financial year</button></div>
+  <div class="grid2" style="margin-top:10px"><div><label class="f">Period</label><select id="repA">${opt(R.a)}</select></div><div><label class="f">Compared with</label><select id="repB">${opt(R.b)}</select></div></div>
+  <div class="chips" style="margin-top:12px">${['all','grocery','supermarket','textile','other'].map(k=>`<button class="chip ${R.cat===k?'on':''}" data-rc="${k}">${k==='all'?'All':CATS[k].icon+' '+CATS[k].label}</button>`).join('')}</div>
+  ${body}
+  <div class="card" style="margin-top:10px"><b>Spending by ${R.type==='fy'?'financial year':'month'}</b><div class="chartwrap" id="spendChart" style="margin-top:10px"></div></div>
+  <div class="row" style="margin-top:12px;gap:8px"><button class="btn ghost sm" data-act="copyReport">${STANDALONE?'Download':'Copy'} report (CSV)</button><button class="btn ghost sm" data-act="copyAll">${STANDALONE?'Download':'Copy'} all purchases (CSV)</button></div>`;
+}
+function wireReports(){
+  const R=S.rep;
+  document.querySelectorAll('[data-rt]').forEach(b=>b.onclick=()=>{ R.type=b.dataset.rt; R.a=null; R.b=null; render(); });
+  document.querySelectorAll('[data-rc]').forEach(b=>b.onclick=()=>{ R.cat=b.dataset.rc; render(); });
+  const a=$('#repA'), b=$('#repB'); if(a) a.onchange=()=>{ R.a=a.value; if(R.b===R.a) R.b=null; render(); }; if(b) b.onchange=()=>{ R.b=b.value; render(); };
+  // spend bar chart
+  const per=new Map(); for (const x of S.bills){ if(R.cat!=='all'&&x.category!==R.cat) continue; const k=periodOf(x.date,R.type); per.set(k,(per.get(k)||0)+billTotal(x)); }
+  let keys=[...per.keys()].sort(); if (R.type==='month') keys=keys.slice(-12);
+  barChart($('#spendChart'), keys.map(k=>({label: R.type==='fy'?k.slice(3):MONTHS[+k.slice(5)-1], full:periodLabel(k,R.type), v:per.get(k), hi: k===R.a})));
+}
+
+/* ============ charts (SVG, with hover tooltips) ============ */
+function niceMax(v){ if(v<=0) return 1; const p=Math.pow(10,Math.floor(Math.log10(v))); const n=v/p; return (n<=1?1:n<=2?2:n<=5?5:10)*p; }
+function barChart(el, data){
+  if(!el) return; if(!data.length){ el.innerHTML='<p class="small muted">No data</p>'; return; }
+  const W=480,H=180,pl=44,pr=6,pt=10,pb=24, iw=W-pl-pr, ih=H-pt-pb;
+  const mx=niceMax(Math.max(...data.map(d=>d.v))); const bw=iw/data.length; const w=Math.min(28,bw-4);
+  let g=''; for(let i=0;i<=4;i++){ const y=pt+ih-ih*i/4; g+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${pl-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="var(--ink3)">${shortInr(mx*i/4)}</text>`; }
+  const bars=data.map((d,i)=>{ const h=Math.max(2,d.v/mx*ih), x=pl+i*bw+(bw-w)/2, y=pt+ih-h;
+    return `<g class="b" data-i="${i}"><rect x="${pl+i*bw}" y="${pt}" width="${bw}" height="${ih}" fill="transparent"/><path d="M${x},${pt+ih} V${y+4} Q${x},${y} ${x+4},${y} H${x+w-4} Q${x+w},${y} ${x+w},${y+4} V${pt+ih}Z" fill="var(--series)" opacity="${d.hi?1:.45}"/>
+    <text x="${x+w/2}" y="${H-6}" text-anchor="middle" font-size="10.5" fill="var(--ink3)">${esc(d.label)}</text></g>`; }).join('');
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${g}${bars}</svg><div class="tip"></div>`;
+  const tip=el.querySelector('.tip'), svg=el.querySelector('svg');
+  el.querySelectorAll('g.b').forEach(gr=>{ const show=()=>{ const d=data[+gr.dataset.i]; const r=svg.getBoundingClientRect(), s=r.width/W; const i=+gr.dataset.i;
+    tip.innerHTML=`${esc(d.full)}<br><b>${money(d.v,0)}</b>`; tip.style.left=(pl+i*bw+bw/2)*s+'px'; tip.style.top=(pt+ih-d.v/mx*ih)*s+'px'; tip.style.opacity=1; };
+    gr.addEventListener('mouseenter',show); gr.addEventListener('click',show); gr.addEventListener('mouseleave',()=>tip.style.opacity=0); });
+}
+function shortInr(v){ if(v>=1e5) return '₹'+(v/1e5).toFixed(v%1e5?1:0)+'L'; if(v>=1e3) return '₹'+(v/1e3).toFixed(v%1e3?1:0)+'k'; return '₹'+Math.round(v); }
+function lineChart(el, pts, unit){
+  if(!el) return;
+  const W=480,H=200,pl=48,pr=12,pt=14,pb=26, iw=W-pl-pr, ih=H-pt-pb;
+  const t=pts.map(p=>new Date(p.date).getTime()); const t0=Math.min(...t), t1=Math.max(...t); const span=(t1-t0)||1;
+  const vs=pts.map(p=>p.unitPrice); let lo=Math.min(...vs), hi=Math.max(...vs); const pad=(hi-lo)*0.15||hi*0.1||1; lo=Math.max(0,lo-pad); hi=hi+pad;
+  const X=ti=> pts.length===1? pl+iw/2 : pl+(ti-t0)/span*iw, Y=v=>pt+ih-(v-lo)/(hi-lo)*ih;
+  let g=''; for(let i=0;i<=3;i++){ const v=lo+(hi-lo)*i/3, y=Y(v); g+=`<line x1="${pl}" x2="${W-pr}" y1="${y}" y2="${y}" stroke="var(--grid)"/><text x="${pl-6}" y="${y+4}" text-anchor="end" font-size="10.5" fill="var(--ink3)">₹${v>=100?Math.round(v):v.toFixed(1)}</text>`; }
+  // x labels: first, last, and year boundaries
+  const lab=new Set([0,pts.length-1]); const xl=[...lab].map(i=>{ const d=pts[i].date; return `<text x="${X(t[i])}" y="${H-6}" text-anchor="${i===0&&pts.length>1?'start':i===pts.length-1&&pts.length>1?'end':'middle'}" font-size="10.5" fill="var(--ink3)">${MONTHS[+d.slice(5,7)-1]} ${d.slice(2,4)}</text>`; }).join('');
+  const path=pts.map((p,i)=>(i?'L':'M')+X(t[i]).toFixed(1)+','+Y(p.unitPrice).toFixed(1)).join(' ');
+  const dots=pts.map((p,i)=>`<circle cx="${X(t[i])}" cy="${Y(p.unitPrice)}" r="4" fill="var(--series)" stroke="var(--card)" stroke-width="2"/>`).join('');
+  el.innerHTML=`<svg viewBox="0 0 ${W} ${H}">${g}${xl}<path d="${path}" fill="none" stroke="var(--series)" stroke-width="2" stroke-linejoin="round" stroke-linecap="round"/>${dots}<line id="xh" y1="${pt}" y2="${pt+ih}" stroke="var(--ink3)" stroke-dasharray="3 3" opacity="0"/><rect id="hit" x="${pl}" y="${pt}" width="${iw}" height="${ih}" fill="transparent"/></svg><div class="tip"></div>`;
+  const svg=el.querySelector('svg'), tip=el.querySelector('.tip'), xh=svg.querySelector('#xh'), hit=svg.querySelector('#hit');
+  const move=e=>{ const r=svg.getBoundingClientRect(), s=r.width/W; const cx=((e.touches?e.touches[0].clientX:e.clientX)-r.left)/s;
+    let bi=0,bd=1e9; pts.forEach((p,i)=>{ const d=Math.abs(X(t[i])-cx); if(d<bd){bd=d;bi=i;} }); const p=pts[bi];
+    xh.setAttribute('x1',X(t[bi])); xh.setAttribute('x2',X(t[bi])); xh.setAttribute('opacity',1);
+    tip.innerHTML=`${dateLabel(p.date)} · ${esc(p.store||'')}<br><b>${money(p.unitPrice)}/${UNIT_LABEL[unit]}</b>`; tip.style.left=X(t[bi])*s+'px'; tip.style.top=Y(p.unitPrice)*s+'px'; tip.style.opacity=1; };
+  hit.addEventListener('mousemove',move); hit.addEventListener('touchstart',move,{passive:true}); hit.addEventListener('touchmove',move,{passive:true});
+  hit.addEventListener('mouseleave',()=>{ tip.style.opacity=0; xh.setAttribute('opacity',0); });
+}
+
+/* ============ sheets ============ */
+function openSheet(html, onMount){ $('#sheet').innerHTML=html; $('#scrim').classList.add('show'); onMount&&onMount($('#sheet')); }
+function closeSheet(){ $('#scrim').classList.remove('show'); $('#sheet').innerHTML=''; }
+$('#scrim').addEventListener('click',e=>{ if(e.target.id==='scrim') closeSheet(); });
+const sheetHd = (title)=>`<div class="hd"><b>${title}</b><button class="iconbtn" data-close aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div>`;
+function confirmSheet(title, msg, okLabel, onOk){
+  openSheet(`${sheetHd(title)}<div class="bd"><p class="muted">${msg}</p></div><div class="ft"><button class="btn ghost" data-close>Cancel</button><button class="btn danger" id="cOk">${okLabel}</button></div>`,
+    s=>{ s.querySelector('#cOk').onclick=async()=>{ s.querySelector('#cOk').disabled=true; try{ await onOk(); }catch(e){} closeSheet(); }; });
+}
+
+function scanChooser(){
+  const ai = aiAvailable();
+  if (!ai && STANDALONE){
+    openSheet(`${sheetHd('Add a bill')}<div class="bd">
+      <div class="note info">To read bills from a photo automatically, add your Anthropic API key in Settings. It stays on this phone only.</div>
+      <button class="btn block" id="sKey" style="margin-top:14px">Add API key</button>
+      <button class="btn ghost block" id="sMan" style="margin-top:10px">Enter items manually</button></div>`, s=>{
+      s.querySelector('#sKey').onclick=settingsSheet;
+      s.querySelector('#sMan').onclick=()=>reviewSheet({id:uid(), store:'', category:'grocery', date:today(), total:0, items:[{name:'',canon:'',qty:1,unit:'pc',price:0}]}, true); });
+    return;
+  }
+  openSheet(`${sheetHd('Add a bill')}<div class="bd">
+    <p class="muted small" style="margin-bottom:14px">${ai?'Take a clear, flat photo of the whole bill in good light. Long bills? Add several photos — they\'ll be read as one bill.':'Automatic bill reading isn\'t available in this view, so you can enter the items yourself.'}</p>
+    ${ai?`<button class="btn block" id="sCam"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M23 19a2 2 0 0 1-2 2H3a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h4l2-3h6l2 3h4a2 2 0 0 1 2 2z"/><circle cx="12" cy="13" r="4"/></svg>Take photo of bill</button>
+    <button class="btn ghost block" id="sGal" style="margin-top:10px">Choose photos from gallery</button>`:''}
+    <button class="btn ghost block" id="sMan" style="margin-top:10px">Enter items manually</button>
+  </div>`, s=>{
+    s.querySelector('#sMan').onclick=()=>reviewSheet({id:uid(), store:'', category:'grocery', date:today(), total:0, items:[{name:'',canon:'',qty:1,unit:'pc',price:0}]}, true);
+    if(ai){ s.querySelector('#sCam').onclick=()=>$('#fileCam').click(); s.querySelector('#sGal').onclick=()=>$('#fileGal').click(); }
+  });
+}
+for (const id of ['#fileCam','#fileGal']) $(id).addEventListener('change', e=>{ const fs=[...e.target.files]; e.target.value=''; if(fs.length) readBill(fs); });
+
+async function shrink(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=url; });
+    const max=1800, sc=Math.min(1, max/Math.max(img.naturalWidth,img.naturalHeight));
+    const c=document.createElement('canvas'); c.width=Math.round(img.naturalWidth*sc); c.height=Math.round(img.naturalHeight*sc);
+    c.getContext('2d').drawImage(img,0,0,c.width,c.height);
+    const blob=await new Promise(r=>c.toBlob(r,'image/jpeg',0.85));
+    return { blob, preview:c.toDataURL('image/jpeg',0.5) };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+let readCtl=null;
+async function readBill(files){
+  openSheet(`${sheetHd('Reading your bill')}<div class="bd"><div class="preview" id="pv"></div><div class="empty"><div class="spinner"></div><p id="rdMsg">Preparing photo…</p><div class="stream" id="rdStream"></div></div></div><div class="ft"><button class="btn ghost" id="rdCancel">Cancel</button></div>`);
+  $('#rdCancel').onclick=()=>{ readCtl&&readCtl.abort(); closeSheet(); };
+  try{
+    let lim={}; try{ lim = await sample.limits() || {}; }catch(e){}
+    const maxImgs = typeof lim.images==='number' ? lim.images : 5;
+    const shr=[]; for (const f of files.slice(0, Math.max(1,maxImgs))) shr.push(await shrink(f));
+    $('#pv').innerHTML=shr.map(s=>`<img src="${s.preview}" alt="">`).join('');
+    $('#rdMsg').textContent='Reading items and prices…';
+    const known=[...new Set(allPurchases('all').map(p=>p.canon))].slice(0,300);
+    const prompt=`You are reading photo(s) of ONE shopping bill / receipt from India (grocery store, supermarket, or textile/clothing shop). Multiple photos are parts of the same long bill, in order.
+
+Return ONLY a JSON object, no prose, in exactly this shape:
+{"store": string, "date": "YYYY-MM-DD" or null, "category": "grocery"|"supermarket"|"textile"|"other", "total": number (final amount payable) or null,
+ "items":[{"name": string, "canon": string, "qty": number, "unit": "g"|"kg"|"ml"|"l"|"pc"|"m", "price": number}]}
+
+Rules for each item:
+- "name": the item text as printed (expand obvious abbreviations lightly).
+- "canon": a short, stable English product name used to track the price over time. Include the brand if printed and the product type, but NOT the pack size or quantity (e.g. "Aashirvaad Atta", "Toor Dal", "Amul Butter", "Cotton Shirt Fabric"). Title Case.${known.length?`\n- If the item is the same product as one of these already-tracked names, reuse that exact name: ${JSON.stringify(known)}`:''}
+- "qty" + "unit": the TOTAL quantity bought. Multiply pack size by count: 2 × 500 g packs → qty 1000, unit "g"; 1 × 5 kg bag → qty 5, unit "kg"; 3 soaps → qty 3, unit "pc"; 2.5 metres of cloth → qty 2.5, unit "m". Read pack sizes from the item text when the quantity column only shows a count.
+- "price": the final line amount actually paid for that line in rupees (after any per-item discount), as a number.
+- Skip lines that are not products: subtotals, taxes/GST summaries, round-off, savings, payment lines, carry bags only if free.
+- Dates in India are usually DD/MM/YYYY or DD-MM-YY; convert to YYYY-MM-DD.
+If something is unreadable, make your best guess and keep going.`;
+    readCtl=new AbortController();
+    const onText=({text})=>{ const el=$('#rdStream'); if(el) el.textContent=text.slice(-600); };
+    const res = sample
+      ? await sample(prompt, { images: shr.map(s=>s.blob), modelTier:'default', signal:readCtl.signal, cache:false, onText })
+      : await apiRead(prompt, shr.map(s=>s.blob), readCtl.signal, onText);
+    const parsed=parseJson(res.text);
+    if(!parsed || !Array.isArray(parsed.items)) throw {message:'Could not read items from this photo.'};
+    const bill={ id:uid(), store:parsed.store||'', category:CATS[parsed.category]?parsed.category:'grocery',
+      date:/^\d{4}-\d{2}-\d{2}$/.test(parsed.date||'')?parsed.date:today(), total:+parsed.total||0,
+      items:parsed.items.map(i=>({name:i.name||'', canon:i.canon||i.name||'', qty:+i.qty||1, unit:normUnit(i.unit)==='cm'?'m':normUnit(i.unit), price:+i.price||0})).filter(i=>i.name||i.price) };
+    reviewSheet(bill, true, shr.map(s=>s.preview));
+  }catch(e){
+    if (e && e.name==='AbortError') return;
+    const code=e&&e.code;
+    const msg = code==='not_granted' ? 'Bill reading was not allowed. You can still enter the items yourself.' : code==='rate_limited' ? 'Too many requests just now — wait a minute and try again.' : (e&&e.message)||'Something went wrong reading the bill.';
+    openSheet(`${sheetHd('Couldn\'t read the bill')}<div class="bd"><div class="note warn">${esc(msg)}</div><p class="small muted" style="margin-top:12px">Tips: lay the bill flat, avoid shadows and glare, and make sure the item lines are sharp.</p></div>
+      <div class="ft"><button class="btn ghost" id="eMan">Enter manually</button><button class="btn" id="eRetry">Try another photo</button></div>`, s=>{
+      s.querySelector('#eMan').onclick=()=>reviewSheet({id:uid(), store:'', category:'grocery', date:today(), total:0, items:[{name:'',canon:'',qty:1,unit:'pc',price:0}]}, true);
+      s.querySelector('#eRetry').onclick=()=>scanChooser(); });
+  }
+}
+function parseJson(t){ if(!t) return null; try{ return JSON.parse(t); }catch(e){} const m=t.match(/\{[\s\S]*\}/); if(m){ try{ return JSON.parse(m[0]); }catch(e){} } return null; }
+
+function reviewSheet(bill, isNew, previews){
+  const b=JSON.parse(JSON.stringify(bill));
+  const unitOpts=u=>['g','kg','ml','l','pc','m'].map(x=>`<option ${x===u?'selected':''}>${x}</option>`).join('');
+  const rowHtml=(it,i)=>`<div class="itemrow" data-i="${i}"><div class="nm"><input type="text" data-f="name" value="${esc(it.name)}" placeholder="Item as on bill"><input type="text" data-f="canon" value="${esc(it.canon)}" placeholder="Track as…"></div>
+    <span class="small faint" style="padding-left:2px">Qty / unit / amount</span><input type="number" inputmode="decimal" step="any" data-f="qty" value="${it.qty}"><select data-f="unit">${unitOpts(it.unit)}</select><input type="number" inputmode="decimal" step="any" data-f="price" value="${it.price}"><button class="x" data-del="${i}" aria-label="Remove item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
+    <div class="pu" data-pu></div></div>`;
+  openSheet(`${sheetHd(isNew?'Check & save bill':'Edit bill')}<div class="bd">
+    ${previews?`<div class="preview">${previews.map(p=>`<img src="${p}" alt="">`).join('')}</div><div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread.</div>`:''}
+    <div><label class="f">Store</label><input type="text" id="rStore" value="${esc(b.store)}" placeholder="Store name"></div>
+    <div class="grid2" style="margin-top:10px"><div><label class="f">Date</label><input type="date" id="rDate" value="${esc(b.date)}"></div>
+    <div><label class="f">Type</label><select id="rCat">${Object.entries(CATS).map(([k,c])=>`<option value="${k}" ${k===b.category?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div></div>
+    <h3 style="margin-top:18px">Items <span id="rCount" style="text-transform:none;letter-spacing:0"></span></h3>
+    <div class="tiny faint" style="margin:-4px 2px 0">"Track as" groups the same product across bills, e.g. every "Toor Dal" purchase.</div>
+    <div id="rItems">${b.items.map(rowHtml).join('')}</div>
+    <button class="btn ghost block sm" id="rAdd" style="margin-top:10px">+ Add item</button>
+    <div class="card row between" style="margin-top:14px"><span class="small muted">Items add up to</span><b id="rSum"></b></div>
+    <div class="grid2" style="margin-top:10px;align-items:end"><div><label class="f">Bill total (₹)</label><input type="number" inputmode="decimal" step="any" id="rTotal" value="${b.total||''}" placeholder="Optional"></div><div id="rDiff"></div></div>
+  </div><div class="ft">${isNew?'':`<button class="btn danger" id="rDel" style="flex:0 0 auto">Delete</button>`}<button class="btn ghost" data-close>Cancel</button><button class="btn" id="rSave">Save bill</button></div>`, s=>{
+    const box=s.querySelector('#rItems');
+    const sync=()=>{ box.querySelectorAll('.itemrow').forEach(r=>{ const i=+r.dataset.i, it=b.items[i]; r.querySelectorAll('[data-f]').forEach(inp=>{ const f=inp.dataset.f; it[f]= (f==='qty'||f==='price') ? (+inp.value||0) : inp.value; });
+        const e=enrich(it); r.querySelector('[data-pu]').textContent = it.price ? `= ${money(e.unitPrice)} per ${UNIT_LABEL[e.base]}` : ''; });
+      const sum=b.items.reduce((x,i)=>x+(+i.price||0),0); s.querySelector('#rSum').textContent=money(sum); s.querySelector('#rCount').textContent='('+b.items.length+')';
+      const tot=+s.querySelector('#rTotal').value; const d=tot?tot-sum:0;
+      s.querySelector('#rDiff').innerHTML = tot && Math.abs(d)>Math.max(2,tot*0.01) ? `<div class="note warn tiny">Off by ${money(Math.abs(d))} — an item may be missing or misread.</div>` : (tot?`<div class="note info tiny">Matches the bill total ✓</div>`:''); };
+    const redraw=()=>{ box.innerHTML=b.items.map(rowHtml).join(''); sync(); };
+    box.addEventListener('input',e=>{ const r=e.target.closest('.itemrow'); if(!r) return; const it=b.items[+r.dataset.i];
+      if(e.target.dataset.f==='name' && (!it.canon || it.canon===it._lastName)){ const c=r.querySelector('[data-f=canon]'); c.value=e.target.value; it._lastName=e.target.value; }
+      sync(); });
+    box.addEventListener('change',sync);
+    box.addEventListener('click',e=>{ const d=e.target.closest('[data-del]'); if(d){ b.items.splice(+d.dataset.del,1); redraw(); } });
+    s.querySelector('#rAdd').onclick=()=>{ sync(); b.items.push({name:'',canon:'',qty:1,unit:'pc',price:0}); redraw(); box.lastElementChild.querySelector('input').focus(); };
+    s.querySelector('#rTotal').oninput=sync;
+    sync();
+    if(!isNew) s.querySelector('#rDel').onclick=()=>confirmSheet('Delete this bill?','Its items will be removed from your price history.','Delete',async()=>{ await deleteBill(b.id); toast('Bill deleted'); });
+    s.querySelector('#rSave').onclick=async()=>{
+      sync();
+      b.store=s.querySelector('#rStore').value.trim(); b.date=s.querySelector('#rDate').value||today(); b.category=s.querySelector('#rCat').value; b.total=+s.querySelector('#rTotal').value||0;
+      b.items=b.items.filter(i=>(i.name||i.canon)&&i.price>0).map(i=>({name:(i.name||i.canon).trim(), canon:(i.canon||i.name).trim(), qty:+i.qty||1, unit:i.unit, price:+i.price}));
+      if(!b.items.length){ toast('Add at least one item with an amount'); return; }
+      b.createdAt=b.createdAt||Date.now();
+      const btn=s.querySelector('#rSave'); btn.disabled=true; btn.textContent='Saving…';
+      try{ await saveBill(b); closeSheet(); toast(isNew?'Bill saved — '+b.items.length+' items tracked':'Bill updated'); }catch(e){ btn.disabled=false; btn.textContent='Save bill'; }
+    };
+  });
+}
+
+function billSheet(id){
+  const b=S.bills.find(x=>x.id===id); if(!b) return;
+  const c=CATS[b.category]||CATS.other;
+  openSheet(`${sheetHd(esc(b.store||'Bill'))}<div class="bd">
+    <div class="row" style="margin-bottom:12px"><span class="chip">${c.icon} ${c.label}</span><span class="chip">${dateLabel(b.date)}</span>${b.demo?'<span class="chip">Sample</span>':''}</div>
+    <div class="card" style="padding:6px 12px"><table class="t"><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Amount</th></tr></thead><tbody>
+    ${(b.items||[]).map(r=>{ const e=enrich(r); return `<tr data-item="${esc(itemKey(e))}" style="cursor:pointer"><td><b>${esc(e.canon)}</b>${e.name!==e.canon?`<div class="tiny faint">${esc(e.name)}</div>`:''}<div class="tiny faint">${money(e.unitPrice)}/${UNIT_LABEL[e.base]}</div></td><td class="n">${+e.qty.toFixed(3)} ${e.unit}</td><td class="n">${money(e.price)}</td></tr>`; }).join('')}
+    </tbody><tfoot><tr><td><b>Total</b></td><td></td><td class="n"><b>${money(billTotal(b))}</b></td></tr></tfoot></table></div>
+  </div><div class="ft"><button class="btn ghost" id="bEdit">Edit</button><button class="btn" data-close>Done</button></div>`, s=>{
+    s.querySelector('#bEdit').onclick=()=>reviewSheet(b,false); });
+}
+
+function itemSheet(key){
+  const e=itemsIndex().find(x=>x.key===key); if(!e) return;
+  const fy=new Map(); for(const p of e.list){ const k=fyOf(p.date); const o=fy.get(k)||{s:0,q:0,n:0}; o.s+=p.price; o.q+=p.qBase; o.n++; fy.set(k,o); }
+  const fyRows=[...fy.entries()].sort((a,b)=>a[0].localeCompare(b[0])); let prev=null;
+  const u=UNIT_LABEL[e.base];
+  openSheet(`${sheetHd(esc(e.canon))}<div class="bd">
+    <div class="grid2"><div class="card tile"><div class="label">Latest price</div><div class="val">${money(e.last.unitPrice)}</div><div class="sub">per ${u} · ${dateLabel(e.last.date)}</div></div>
+    <div class="card tile"><div class="label">Since first bill</div><div class="val" style="color:${e.chg>0.5?'var(--up)':e.chg<-0.5?'var(--down)':'inherit'}">${e.list.length>1?pctFmt(e.chg):'—'}</div><div class="sub">from ${money(e.first.unitPrice)} in ${ymLabel(ym(e.first.date))}</div></div></div>
+    <div class="card" style="margin-top:10px"><b>Price per ${u}</b><div class="chartwrap" id="itemChart" style="margin-top:8px"></div></div>
+    <h3>By financial year</h3><div class="card" style="padding:6px 12px"><table class="t"><thead><tr><th>Year</th><th class="n">Bought</th><th class="n">Avg /${u}</th><th class="n">Change</th></tr></thead><tbody>
+    ${fyRows.map(([k,o])=>{ const a=o.q?o.s/o.q:0; const ch=prev?(a-prev)/prev*100:null; prev=a; return `<tr><td>${k}</td><td class="n">${o.n}×</td><td class="n">${money(a)}</td><td class="n">${ch==null?'—':badge(ch)}</td></tr>`; }).join('')}</tbody></table></div>
+    <h3>Purchases</h3><div class="card" style="padding:6px 12px"><table class="t"><thead><tr><th>Date</th><th>Store</th><th class="n">Qty</th><th class="n">/${u}</th></tr></thead><tbody>
+    ${[...e.list].reverse().map(p=>`<tr><td>${dateLabel(p.date)}</td><td class="small">${esc(p.store||'')}</td><td class="n small">${+p.qty.toFixed(3)} ${p.unit}</td><td class="n">${money(p.unitPrice)}</td></tr>`).join('')}</tbody></table></div>
+  </div>`, ()=>lineChart($('#itemChart'), e.list, e.base));
+}
+
+function settingsSheet(){
+  const demo=S.bills.filter(b=>b.demo).length;
+  openSheet(`${sheetHd('Settings')}<div class="bd">
+    <div class="card"><div class="row"><span class="status-dot" style="background:${S.mode==='cloud'?'var(--accent)':'var(--warn)'}"></span><b>${S.mode==='cloud'?'Synced to your account':'Saved on this device only'}</b></div>
+    <p class="small muted" style="margin-top:6px">${S.mode==='cloud'?'Your bills are private to you and available on your phone and computer when you open this app signed in.':STANDALONE?'Bills are stored in this browser. Use Backup regularly, and Restore to move them to another phone or computer.':'Sign in to Claude and open this app from its link to keep bills across devices.'}</p>
+    <p class="small muted" style="margin-top:6px">${S.bills.length} bills · ${allPurchases('all').length} item lines · ${itemsIndex().length} products tracked</p></div>
+    <div class="card" style="margin-top:10px"><b>Financial year</b><p class="small muted" style="margin-top:4px">Reports use the Indian financial year, April to March (e.g. FY 2025-26 = Apr 2025 – Mar 2026).</p></div>
+    ${STANDALONE?`<div class="card" style="margin-top:10px"><b>Bill reading</b>
+      <p class="small muted" style="margin-top:4px">Photos are read by Claude using your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic API key</a>. The key is saved only in this browser and sent only to Anthropic. Each bill costs a few paise to a rupee or two of API usage.</p>
+      <label class="f" style="margin-top:10px">API key</label><input type="password" id="stKey" autocomplete="off" placeholder="sk-ant-…" value="${esc(getKey())}" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%">
+      <label class="f" style="margin-top:10px">Model</label><select id="stModel">${[['claude-sonnet-5-5','Sonnet — most accurate'],['claude-haiku-5-5','Haiku — faster, cheaper']].map(([v,l])=>`<option value="${v}" ${getModel()===v?'selected':''}>${l}</option>`).join('')}</select>
+      <div class="row" style="margin-top:10px"><button class="btn sm" id="stKeySave">Save</button>${getKey()?`<button class="btn ghost sm" id="stKeyDel">Remove key</button>`:''}</div></div>
+    <div class="card" style="margin-top:10px"><b>Backup</b><p class="small muted" style="margin-top:4px">Download all bills as a file, or restore them on another phone or computer.</p>
+      <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="stBackup">Download backup</button><button class="btn ghost sm" id="stRestore">Restore from file</button></div>
+      <input type="file" id="stRestoreFile" accept="application/json,.json" class="hide"></div>`:''}
+    <div style="margin-top:14px;display:flex;flex-direction:column;gap:10px">
+      ${demo?`<button class="btn ghost block" id="stDemoOff">Remove sample data (${demo} bills)</button>`:`<button class="btn ghost block" id="stDemoOn">Load sample data</button>`}
+      <button class="btn ghost block" id="stCopy">${STANDALONE?'Download':'Copy'} all purchases (CSV)</button>
+      ${S.bills.length?`<button class="btn danger block" id="stWipe">Delete all bills</button>`:''}
+    </div></div>`, s=>{
+    s.querySelector('#stDemoOff')&&(s.querySelector('#stDemoOff').onclick=()=>confirmSheet('Remove sample data?','Only the sample bills are removed. Your own bills stay.','Remove',async()=>{ await removeDemo(); toast('Sample data removed'); }));
+    s.querySelector('#stDemoOn')&&(s.querySelector('#stDemoOn').onclick=()=>{ closeSheet(); loadDemo(); });
+    s.querySelector('#stCopy').onclick=()=>copyCsv(allCsv(),'all-purchases');
+    if (STANDALONE){
+      s.querySelector('#stKeySave').onclick=()=>{ try{ const k=s.querySelector('#stKey').value.trim(); k?localStorage.setItem(KEY_K,k):localStorage.removeItem(KEY_K); localStorage.setItem(MODEL_K,s.querySelector('#stModel').value); }catch(e){} toast('Saved'); closeSheet(); };
+      s.querySelector('#stKeyDel')&&(s.querySelector('#stKeyDel').onclick=()=>{ try{ localStorage.removeItem(KEY_K); }catch(e){} toast('API key removed'); settingsSheet(); });
+      s.querySelector('#stBackup').onclick=()=>{ downloadFile('bill-ledger-backup-'+today()+'.json', JSON.stringify({app:'bill-ledger', version:1, exported:new Date().toISOString(), bills:S.bills}), 'application/json'); toast('Backup downloaded'); };
+      const rf=s.querySelector('#stRestoreFile'); s.querySelector('#stRestore').onclick=()=>rf.click();
+      rf.onchange=async()=>{ const f=rf.files[0]; if(!f) return; try{ const j=JSON.parse(await f.text()); const bs=Array.isArray(j)?j:j.bills; if(!Array.isArray(bs)) throw 0;
+        const byId=new Map(S.bills.map(b=>[b.id,b])); let n=0; for(const b of bs){ if(b&&b.id&&b.date&&Array.isArray(b.items)){ byId.set(b.id,b); n++; } }
+        S.bills=[...byId.values()]; localSave(); render(); closeSheet(); toast(n+' bills restored'); }catch(e){ toast('That file is not a Bill Ledger backup'); } };
+    }
+    s.querySelector('#stWipe')&&(s.querySelector('#stWipe').onclick=()=>confirmSheet('Delete all bills?','This removes every bill and its price history. It can\'t be undone.','Delete all',async()=>{ for(const b of [...S.bills]) await deleteBill(b.id); toast('All bills deleted'); }));
+  });
+}
+
+/* ============ CSV ============ */
+const csvCell=v=>{ v=String(v??''); return /[",\n]/.test(v)?'"'+v.replace(/"/g,'""')+'"':v; };
+function allCsv(){ const rows=[['date','store','category','item','track_as','qty','unit','amount','price_per_unit','per']];
+  for(const p of allPurchases('all').sort((a,b)=>a.date.localeCompare(b.date))) rows.push([p.date,p.store,p.category,p.name,p.canon,p.qty,p.unit,p.price.toFixed(2),p.unitPrice.toFixed(2),UNIT_LABEL[p.base]]);
+  return rows.map(r=>r.map(csvCell).join(',')).join('\n'); }
+function reportCsv(){ const R=S.rep; if(!R.b) return ''; const c=compare(R.type,R.a,R.b,R.cat);
+  const rows=[['item','per',periodLabel(R.b,R.type)+' avg',periodLabel(R.a,R.type)+' avg','change_%']];
+  for(const r of c.rows) rows.push([r.canon,UNIT_LABEL[r.base],r.b.toFixed(2),r.a.toFixed(2),r.chg.toFixed(1)]);
+  return rows.map(r=>r.map(csvCell).join(',')).join('\n'); }
+async function copyCsv(t, name){ if(!t){ toast('Nothing to copy yet'); return; }
+  if (STANDALONE){ downloadFile((name||'bill-ledger')+'-'+today()+'.csv', t, 'text/csv'); toast('CSV downloaded — open in Excel or Google Sheets'); return; } try{ await navigator.clipboard.writeText(t); toast('Copied — paste into Excel or Google Sheets'); }catch(e){ toast('Copy was blocked by the browser'); } }
+
+/* ============ sample data ============ */
+async function loadDemo(){
+  const P=[ // canon, cat, qty, unit, start price per pack, yearly inflation, store type
+    ['Toor Dal','grocery',1,'kg',150,.14],['Ponni Rice','grocery',5,'kg',290,.07],['Sunflower Oil','grocery',1,'l',135,.05],['Sugar','grocery',1,'kg',44,.04],
+    ['Tea Powder','grocery',250,'g',120,.09],['Onion','grocery',2,'kg',60,.18],['Tomato','grocery',1,'kg',35,.10],['Ghee','grocery',500,'ml',320,.08],
+    ['Wheat Atta','supermarket',5,'kg',245,.06],['Milk','supermarket',1,'l',52,.05],['Eggs','supermarket',12,'pc',78,.06],['Bath Soap','supermarket',4,'pc',140,.03],
+    ['Detergent Powder','supermarket',1,'kg',125,.02],['Toothpaste','supermarket',150,'g',95,.04],['Coffee Powder','supermarket',200,'g',160,.16],
+    ['Cotton Shirt Fabric','textile',2.5,'m',450,.07],['Cotton Saree','textile',1,'pc',1200,.09],['Bath Towel','textile',2,'pc',380,.05],['Bedsheet','textile',1,'pc',650,.06]];
+  const stores={grocery:'Lakshmi Provisions',supermarket:'Annapoorna Supermarket',textile:'Kanchi Weaves & Textiles'};
+  let seed=7; const rnd=()=>{ seed=(seed*16807)%2147483647; return seed/2147483647; };
+  const bills=[]; const start=new Date(2024,3,1); const now=new Date();
+  for(let d=new Date(start); d<=now; d.setMonth(d.getMonth()+1)){
+    const yrs=(d-start)/31557600000;
+    for(const cat of ['grocery','supermarket','textile']){
+      if(cat==='textile' && d.getMonth()%3!==0) continue;
+      const day=Math.min(28, cat==='grocery'?3+Math.floor(rnd()*6):cat==='supermarket'?14+Math.floor(rnd()*8):20);
+      const date=`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(day).padStart(2,'0')}`;
+      if(date>today()) continue;
+      const items=P.filter(p=>p[1]===cat && (cat!=='textile'||rnd()<.6) && rnd()<.92).map(p=>{ const seasonal = p[0]==='Onion'||p[0]==='Tomato' ? 1+0.25*Math.sin(d.getMonth()/12*2*Math.PI) : 1;
+        const price=Math.round(p[4]*Math.pow(1+p[5],yrs)*seasonal*(0.97+rnd()*0.06)); return {name:p[0].toUpperCase()+' '+p[2]+p[3].toUpperCase(), canon:p[0], qty:p[2], unit:p[3], price}; });
+      if(!items.length) continue;
+      bills.push({id:'demo-'+date+'-'+cat, store:stores[cat], category:cat, date, items, total:items.reduce((s,i)=>s+i.price,0), demo:true, createdAt:Date.now()});
+    }
+  }
+  toast('Adding sample bills…');
+  if(S.mode==='cloud'){ for(let i=0;i<bills.length;i+=6){ await Promise.all(bills.slice(i,i+6).map(b=>saveBill(b).catch(()=>{}))); } }
+  else { S.bills.push(...bills); localSave(); render(); }
+  toast(bills.length+' sample bills added — open Reports');
+}
+async function removeDemo(){ const ds=S.bills.filter(b=>b.demo); if(S.mode==='cloud'){ for(let i=0;i<ds.length;i+=6) await Promise.all(ds.slice(i,i+6).map(b=>S.col.doc(b.id).delete().catch(()=>{}))); } else { S.bills=S.bills.filter(b=>!b.demo); localSave(); render(); } }
+
+/* ============ wiring ============ */
+document.addEventListener('click',e=>{
+  const t=e.target.closest('[data-tab],[data-act],[data-bill],[data-item],[data-close]'); if(!t) return;
+  if(t.dataset.tab){ S.tab=t.dataset.tab; render(); window.scrollTo(0,0); return; }
+  if(t.hasAttribute('data-close')){ closeSheet(); return; }
+  if(t.dataset.bill){ billSheet(t.dataset.bill); return; }
+  if(t.dataset.item){ itemSheet(t.dataset.item); return; }
+  const a=t.dataset.act;
+  if(a==='scan') scanChooser(); else if(a==='demo') loadDemo(); else if(a==='copyReport') copyCsv(reportCsv(),'price-report'); else if(a==='copyAll') copyCsv(allCsv(),'all-purchases');
+});
+$('#tabScan').onclick=scanChooser;
+$('#btnSettings').onclick=settingsSheet;
+document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
+
+render();
+(async()=>{
+  if (!STANDALONE){ try{ sample = await claude.use('sample'); }catch(e){ sample=null; } initData(); }
+  else { S.mode='local'; S.bills=localLoad(); render(); }
+  if (STANDALONE && 'serviceWorker' in navigator && location.protocol==='https:'){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
+})();
+</script>
+</body>
+</html>
