@@ -1,6 +1,6 @@
 // Offline support: the app shell is cached so Bill Ledger opens without a connection.
 // Bump CACHE when you change any file below so phones pick up the new version.
-const CACHE = 'bill-ledger-v3';
+const CACHE = 'bill-ledger-v4';
 const SHELL = ['./', './index.html', './config.js', './manifest.webmanifest', './icons/icon-192.png', './icons/icon-512.png'];
 
 self.addEventListener('install', e => {

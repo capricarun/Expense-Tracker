@@ -119,6 +119,12 @@ nav.tabs .scan{width:58px;height:58px;border-radius:20px;background:var(--accent
 .note.info{background:var(--accent-soft);color:var(--accent)}
 .preview{display:flex;gap:8px;overflow-x:auto;margin:6px 0 4px}
 .preview img{height:84px;border-radius:10px;object-fit:cover;box-shadow:var(--shadow)}
+.thumbs{display:flex;gap:8px;overflow-x:auto;padding:2px 2px 6px;scrollbar-width:none}
+.thumb{position:relative;flex:none;width:76px;height:100px;border-radius:12px;overflow:hidden;background:var(--card);box-shadow:inset 0 0 0 1px var(--line)}
+.thumb img{width:100%;height:100%;object-fit:cover;object-position:top;display:block;background:#fff}
+.thumb img.missing{opacity:0}
+.thumb .rm{position:absolute;top:4px;right:4px;width:24px;height:24px;border-radius:8px;background:rgba(0,0,0,.6);color:#fff;display:grid;place-items:center}
+.thumb.add{display:grid;place-items:center;color:var(--accent);font-weight:700;font-size:12px;text-align:center;box-shadow:inset 0 0 0 1.5px var(--accent);background:var(--accent-soft)}
 .spinner{width:42px;height:42px;border-radius:50%;border:4px solid var(--accent-soft);border-top-color:var(--accent);animation:spin .9s linear infinite;margin:0 auto}
 @keyframes spin{to{transform:rotate(360deg)}}
 .stream{font-family:ui-monospace,Menlo,monospace;font-size:11.5px;color:var(--ink3);max-height:110px;overflow:hidden;white-space:pre-wrap;margin-top:14px;text-align:left;mask-image:linear-gradient(transparent,#000 40%)}
@@ -260,9 +266,34 @@ const CLOUD_READY = STANDALONE && !!(FB.apiKey && FB.projectId);
 const SYNC_K='billledger.sync';
 const FB_V='10.14.1';
 const Cloud = { auth:null, fs:null, user:null, state:'off', last:0, err:'', running:false, again:false };
-function syncMeta(){ try{ return Object.assign({dirty:[],tomb:{},last:0}, JSON.parse(localStorage.getItem(SYNC_K)||'{}')); }catch(e){ return {dirty:[],tomb:{},last:0}; } }
+function syncMeta(){ const d={dirty:[],tomb:{},last:0,pUp:[],pDel:[]}; try{ return Object.assign(d, JSON.parse(localStorage.getItem(SYNC_K)||'{}')); }catch(e){ return d; } }
 function setSyncMeta(m){ try{ localStorage.setItem(SYNC_K, JSON.stringify(m)); }catch(e){} }
 function markDirty(ids){ const m=syncMeta(); for(const id of ids){ if(!m.dirty.includes(id)) m.dirty.push(id); delete m.tomb[id]; } setSyncMeta(m); syncSoon(); }
+function queuePhotos(up, del){
+  if(!CLOUD_READY || (!up.length && !del.length)) return;
+  const m=syncMeta(); for(const id of up) if(!m.pUp.includes(id)) m.pUp.push(id);
+  for(const id of del){ m.pUp=m.pUp.filter(x=>x!==id); if(!m.pDel.includes(id)) m.pDel.push(id); }
+  setSyncMeta(m); syncSoon();
+}
+const photosCol = () => Cloud.fs.collection('users').doc(Cloud.user.uid).collection('photos');
+function b64ToBlob(b64, type){ const bin=atob(b64); const u=new Uint8Array(bin.length); for(let i=0;i<bin.length;i++) u[i]=bin.charCodeAt(i); return new Blob([u],{type}); }
+async function fetchCloudPhoto(id){
+  if(!Cloud.fs || !Cloud.user) return null;
+  const d=await photosCol().doc(id).get(); if(!d.exists) return null;
+  const v=d.data(); const rec={blob:b64ToBlob(v.data,'image/jpeg'), w:v.w, h:v.h, size:v.size};
+  await PhotoDB.put(id, rec).catch(()=>{}); return rec;
+}
+async function syncPhotos(){
+  let m=syncMeta();
+  if(m.pDel.length){ const ids=[...m.pDel];
+    for(let i=0;i<ids.length;i+=400){ const batch=Cloud.fs.batch(); for(const id of ids.slice(i,i+400)) batch.delete(photosCol().doc(id)); await batch.commit(); }
+    m=syncMeta(); m.pDel=m.pDel.filter(x=>!ids.includes(x)); setSyncMeta(m); }
+  for(const id of [...syncMeta().pUp]){
+    const rec=await PhotoDB.get(id);
+    if(rec && rec.blob) await photosCol().doc(id).set({data:await blobToB64(rec.blob), w:rec.w||0, h:rec.h||0, size:rec.size||rec.blob.size, updatedAt:Date.now()});
+    m=syncMeta(); m.pUp=m.pUp.filter(x=>x!==id); setSyncMeta(m);   // one at a time, so a dropped connection resumes where it stopped
+  }
+}
 function markDeleted(id){ const m=syncMeta(); m.dirty=m.dirty.filter(x=>x!==id); m.tomb[id]=Date.now(); setSyncMeta(m); syncSoon(); }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
 function fbError(e){
@@ -328,14 +359,19 @@ async function syncNow(){
     // 3) merge: newest edit wins
     const local=new Map(S.bills.map(b=>[b.id,b])); const seen=new Set(); let changed=false;
     for(const r of remote){ seen.add(r.id); const rt=+r.updatedAt||0; const l=local.get(r.id);
-      if(r.deleted){ if(l && (l.updatedAt||0)<=rt && !syncMeta().dirty.includes(r.id)){ local.delete(r.id); changed=true; } continue; }
+      if(r.deleted){ if(l && (l.updatedAt||0)<=rt && !syncMeta().dirty.includes(r.id)){ if(l.photos) dropPhotos(l.photos.map(p=>p.id)); local.delete(r.id); changed=true; } continue; }
       if(r.data && (!l || (l.updatedAt||0)<rt)){ local.set(r.id, {...r.data, id:r.id, updatedAt:rt}); changed=true; } }
     // 4) bills on this phone the cloud has never seen (e.g. added before signing in) -> upload
     const missing=[...local.values()].filter(b=>!seen.has(b.id));
-    if(missing.length) await writeRows(missing.map(b=>({id:b.id, data:clean(b), deleted:false, updatedAt:b.updatedAt||Date.now()})));
+    if(missing.length){ await writeRows(missing.map(b=>({id:b.id, data:clean(b), deleted:false, updatedAt:b.updatedAt||Date.now()})));
+      const pids=missing.flatMap(b=>(b.photos||[]).map(p=>p.id)); if(pids.length){ const mm=syncMeta(); for(const id of pids) if(!mm.pUp.includes(id)) mm.pUp.push(id); setSyncMeta(mm); } }
     if(changed){ S.bills=[...local.values()]; localSave(); render(); }
+    // 5) bill photos
+    try{ await syncPhotos(); }
+    catch(pe){ m=syncMeta(); m.last=Date.now(); setSyncMeta(m); Cloud.last=m.last;
+      setCloudState('error', 'Bills are backed up, but photos could not upload: ' + (pe&&pe.code==='permission-denied' ? 'update the Firestore rules (see README).' : fbError(pe))); return false; }
     m=syncMeta(); m.last=Date.now(); setSyncMeta(m); Cloud.last=m.last;
-    setCloudState(m.dirty.length||Object.keys(m.tomb).length ? 'idle' : 'synced');
+    setCloudState(m.dirty.length||Object.keys(m.tomb).length||m.pUp.length||m.pDel.length ? 'idle' : 'synced');
     return true;
   }catch(e){
     setCloudState(navigator.onLine?'error':'offline', fbError(e));
@@ -358,9 +394,9 @@ function renderCloudBadge(){
 async function cloudSignOut(){
   await syncNow();
   const m=syncMeta();
-  if(m.dirty.length || Object.keys(m.tomb).length){ toast('Some changes are not backed up yet — connect to the internet first'); return; }
+  if(m.dirty.length || Object.keys(m.tomb).length || m.pUp.length){ toast('Some changes are not backed up yet — connect to the internet first'); return; }
   await Cloud.auth.signOut();
-  S.bills=[]; localSave(); setSyncMeta({dirty:[],tomb:{},last:0}); Cloud.user=null; setCloudState('signedout'); render(); closeSheet();
+  S.bills=[]; localSave(); await PhotoDB.clear(); photoUrls.clear(); setSyncMeta({dirty:[],tomb:{},last:0,pUp:[],pDel:[]}); Cloud.user=null; setCloudState('signedout'); render(); closeSheet();
   toast('Signed out. Your bills are safe in the cloud.');
 }
 const IS_IOS_PWA = (window.navigator.standalone === true);
@@ -407,7 +443,7 @@ function wireCloudCard(s){
   q('#cOut')&&(q('#cOut').onclick=()=>confirmSheet('Sign out?','Your bills stay safe in your cloud account and will be removed from this device. Sign in again to get them back.','Sign out',cloudSignOut));
 }
 function downloadFile(name, text, type){
-  const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click();
+  const a=document.createElement('a'); a.href=URL.createObjectURL(text instanceof Blob ? text : new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
 }
 const LKEY='billledger.v1';
@@ -446,9 +482,93 @@ async function saveBill(b){
   }
 }
 async function deleteBill(id){
+  const pids=((S.bills.find(b=>b.id===id)||{}).photos||[]).map(p=>p.id);
   if (S.mode==='cloud'){ await S.col.doc(id).delete(); }
   else { S.bills=S.bills.filter(b=>b.id!==id); localSave(); render(); if (CLOUD_READY) markDeleted(id); }
+  if (pids.length){ await dropPhotos(pids); queuePhotos([], pids); }
 }
+
+/* ============ Bill photos ============
+   Each bill can keep its photo(s): a small, high-contrast black & white JPEG
+   (~1000px wide, usually under 300 KB) — light to store, but the text stays clear.
+   Photos live in IndexedDB on the device and, when signed in, in Firestore at
+   users/{uid}/photos/{photoId}. On a new phone they download when a bill is opened. */
+const PhotoDB = (()=>{
+  let dbp=null;
+  const open=()=> dbp ||= new Promise((res,rej)=>{ const r=indexedDB.open('billledger',1); r.onupgradeneeded=()=>{ if(!r.result.objectStoreNames.contains('photos')) r.result.createObjectStore('photos'); }; r.onsuccess=()=>res(r.result); r.onerror=()=>rej(r.error); });
+  const run=async(mode,fn)=>{ const db=await open(); return new Promise((res,rej)=>{ const t=db.transaction('photos',mode); const rq=fn(t.objectStore('photos')); t.oncomplete=()=>res(rq?rq.result:undefined); t.onerror=()=>rej(t.error); t.onabort=()=>rej(t.error); }); };
+  return {
+    get: id => run('readonly', s=>s.get(id)).catch(()=>null),
+    put: (id,v) => run('readwrite', s=>s.put(v,id)),
+    del: id => run('readwrite', s=>s.delete(id)).catch(()=>{}),
+    clear: () => run('readwrite', s=>s.clear()).catch(()=>{}),
+    keys: () => run('readonly', s=>s.getAllKeys()).catch(()=>[])
+  };
+})();
+async function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
+/* Turn a camera photo into a compact, readable archive copy. */
+async function makeArchive(file){
+  const url=URL.createObjectURL(file);
+  try{
+    const img=await loadImg(url);
+    // keep up to ~2.2 megapixels (long edge ≤ 2000px) so small receipt text stays readable
+    let sc=Math.min(1, 2000/Math.max(img.naturalWidth,img.naturalHeight), Math.sqrt(2.2e6/(img.naturalWidth*img.naturalHeight)));
+    for(let attempt=0; attempt<4; attempt++){
+      const w=Math.max(1,Math.round(img.naturalWidth*sc)), h=Math.max(1,Math.round(img.naturalHeight*sc));
+      const c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d');
+      x.imageSmoothingQuality='high'; x.drawImage(img,0,0,w,h);
+      // grayscale + contrast stretch (ignores the darkest/lightest 1.5%) so faint thermal print stays legible
+      const d=x.getImageData(0,0,w,h), p=d.data, hist=new Uint32Array(256);
+      for(let i=0;i<p.length;i+=4){ const y=(p[i]*299+p[i+1]*587+p[i+2]*114)/1000|0; p[i]=y; hist[y]++; }
+      const n=w*h; let lo=0, hi=255, acc=0; for(;lo<255;lo++){ acc+=hist[lo]; if(acc>n*0.015) break; } acc=0; for(;hi>0;hi--){ acc+=hist[hi]; if(acc>n*0.015) break; }
+      const span=Math.max(40, hi-lo);
+      for(let i=0;i<p.length;i+=4){ let v=(p[i]-lo)*255/span; v=v<0?0:v>255?255:v; p[i]=p[i+1]=p[i+2]=v; }
+      x.putImageData(d,0,0);
+      let blob=null;
+      for(const q of [0.62,0.54,0.46,0.4]){
+        blob=await new Promise(r=>c.toBlob(r,'image/jpeg',q));
+        if(blob && blob.size<=320*1024) return { blob, w, h, size:blob.size };   // target: under ~320 KB
+      }
+      if(attempt===3 && blob) return { blob, w, h, size:blob.size };
+      sc*=0.8;   // still too big: shrink a little and try again
+    }
+    throw new Error('Could not compress photo');
+  } finally { URL.revokeObjectURL(url); }
+}
+const photoUrls=new Map();
+async function photoURL(id){
+  if(photoUrls.has(id)) return photoUrls.get(id);
+  let rec=await PhotoDB.get(id);
+  if(!rec && CLOUD_READY && Cloud.user){ rec=await fetchCloudPhoto(id).catch(()=>null); }
+  if(!rec || !rec.blob) return null;
+  const u=URL.createObjectURL(rec.blob); photoUrls.set(id,u); return u;
+}
+const newPhotoId = billId => billId+'-p'+Date.now().toString(36)+Math.random().toString(36).slice(2,5);
+async function storePhotos(billId, arch){
+  const metas=[];
+  for(const a of arch){ const id=newPhotoId(billId); await PhotoDB.put(id,{blob:a.blob,w:a.w,h:a.h,size:a.size}); metas.push({id,w:a.w,h:a.h,size:a.size}); }
+  return metas;
+}
+async function dropPhotos(ids){ for(const id of ids){ await PhotoDB.del(id); const u=photoUrls.get(id); if(u){ URL.revokeObjectURL(u); photoUrls.delete(id); } } }
+async function fillThumbs(root){
+  for(const im of root.querySelectorAll('img[data-photo]')){ const u=await photoURL(im.dataset.photo);
+    if(u){ im.src=u; im.classList.remove('missing'); } else { im.classList.add('missing'); im.alt='Photo not available'; } }
+}
+function photoViewer(bill, start){
+  const ids=(bill.photos||[]).map(p=>p.id); let i=start||0, zoom=false;
+  openSheet(`${sheetHd('Bill photo')}<div class="bd" style="padding:0 8px 8px"><div id="pvWrap" style="overflow:auto;border-radius:12px;background:#fff;max-height:70vh;touch-action:pan-x pan-y pinch-zoom"><img id="pvImg" alt="Bill photo" style="display:block;width:100%;height:auto"></div>
+    <p class="tiny faint" id="pvInfo" style="text-align:center;margin-top:6px"></p></div>
+    <div class="ft">${ids.length>1?`<button class="btn ghost" id="pvPrev" style="flex:0 0 auto">‹</button>`:''}<button class="btn ghost" id="pvZoom">Zoom in</button>${STANDALONE?`<button class="btn ghost" id="pvDl">Download</button>`:''}${ids.length>1?`<button class="btn ghost" id="pvNext" style="flex:0 0 auto">›</button>`:''}<button class="btn" data-close>Done</button></div>`, async s=>{
+    const show=async()=>{ const im=s.querySelector('#pvImg'); const u=await photoURL(ids[i]); im.src=u||''; im.style.width=zoom?'200%':'100%';
+      const m=bill.photos[i]; s.querySelector('#pvInfo').textContent=(ids.length>1?`Photo ${i+1} of ${ids.length} · `:'')+(m&&m.size?Math.round(m.size/1024)+' KB':'')+(u?'':' · not available on this device'); };
+    s.querySelector('#pvZoom').onclick=e=>{ zoom=!zoom; e.target.textContent=zoom?'Fit to screen':'Zoom in'; show(); };
+    s.querySelector('#pvPrev')&&(s.querySelector('#pvPrev').onclick=()=>{ i=(i-1+ids.length)%ids.length; show(); });
+    s.querySelector('#pvNext')&&(s.querySelector('#pvNext').onclick=()=>{ i=(i+1)%ids.length; show(); });
+    s.querySelector('#pvDl')&&(s.querySelector('#pvDl').onclick=async()=>{ const rec=await PhotoDB.get(ids[i]); if(!rec){ toast('Photo not available'); return; } downloadFile(`bill-${bill.date}-${(bill.store||'store').replace(/\W+/g,'-')}${ids.length>1?'-'+(i+1):''}.jpg`, rec.blob, 'image/jpeg'); });
+    show();
+  });
+}
+const pickPhotos = () => new Promise(res=>{ const inp=document.createElement('input'); inp.type='file'; inp.accept='image/*'; inp.multiple=true; inp.onchange=()=>res([...inp.files]); inp.click(); });
 
 /* ============ analytics ============ */
 function allPurchases(cat){
@@ -537,7 +657,7 @@ function viewHome(){
 }
 function billLi(b){
   const c=CATS[b.category]||CATS.other;
-  return `<button class="li" data-bill="${esc(b.id)}"><div class="avatar">${c.icon}</div><div class="main"><div class="t">${esc(b.store||'Unknown store')}</div><div class="s">${dateLabel(b.date)} · ${(b.items||[]).length} items${b.demo?' · sample':''}</div></div><div class="r">${money(billTotal(b))}</div></button>`;
+  return `<button class="li" data-bill="${esc(b.id)}"><div class="avatar">${c.icon}</div><div class="main"><div class="t">${esc(b.store||'Unknown store')}</div><div class="s">${dateLabel(b.date)} · ${(b.items||[]).length} items${b.photos&&b.photos.length?' · 📷':''}${b.demo?' · sample':''}</div></div><div class="r">${money(billTotal(b))}</div></button>`;
 }
 function viewBills(){
   if (!S.bills.length) return `<h2>Bills</h2>`+emptyState();
@@ -690,12 +810,14 @@ async function shrink(file){
 
 let readCtl=null;
 async function readBill(files){
+  let arch=[];
   openSheet(`${sheetHd('Reading your bill')}<div class="bd"><div class="preview" id="pv"></div><div class="empty"><div class="spinner"></div><p id="rdMsg">Preparing photo…</p><div class="stream" id="rdStream"></div></div></div><div class="ft"><button class="btn ghost" id="rdCancel">Cancel</button></div>`);
   $('#rdCancel').onclick=()=>{ readCtl&&readCtl.abort(); closeSheet(); };
   try{
     let lim={}; try{ lim = await sample.limits() || {}; }catch(e){}
     const maxImgs = typeof lim.images==='number' ? lim.images : 5;
     const shr=[]; for (const f of files.slice(0, Math.max(1,maxImgs))) shr.push(await shrink(f));
+    arch=[]; for (const f of files) { try{ arch.push(await makeArchive(f)); }catch(e){} }
     $('#pv').innerHTML=shr.map(s=>`<img src="${s.preview}" alt="">`).join('');
     $('#rdMsg').textContent='Reading items and prices…';
     const known=[...new Set(allPurchases('all').map(p=>p.canon))].slice(0,300);
@@ -723,27 +845,32 @@ If something is unreadable, make your best guess and keep going.`;
     const bill={ id:uid(), store:parsed.store||'', category:CATS[parsed.category]?parsed.category:'grocery',
       date:/^\d{4}-\d{2}-\d{2}$/.test(parsed.date||'')?parsed.date:today(), total:+parsed.total||0,
       items:parsed.items.map(i=>({name:i.name||'', canon:i.canon||i.name||'', qty:+i.qty||1, unit:normUnit(i.unit)==='cm'?'m':normUnit(i.unit), price:+i.price||0})).filter(i=>i.name||i.price) };
-    reviewSheet(bill, true, shr.map(s=>s.preview));
+    reviewSheet(bill, true, arch);
   }catch(e){
     if (e && e.name==='AbortError') return;
     const code=e&&e.code;
     const msg = code==='not_granted' ? 'Bill reading was not allowed. You can still enter the items yourself.' : code==='rate_limited' ? 'Too many requests just now — wait a minute and try again.' : (e&&e.message)||'Something went wrong reading the bill.';
     openSheet(`${sheetHd('Couldn\'t read the bill')}<div class="bd"><div class="note warn">${esc(msg)}</div><p class="small muted" style="margin-top:12px">Tips: lay the bill flat, avoid shadows and glare, and make sure the item lines are sharp.</p></div>
       <div class="ft"><button class="btn ghost" id="eMan">Enter manually</button><button class="btn" id="eRetry">Try another photo</button></div>`, s=>{
-      s.querySelector('#eMan').onclick=()=>reviewSheet({id:uid(), store:'', category:'grocery', date:today(), total:0, items:[{name:'',canon:'',qty:1,unit:'pc',price:0}]}, true);
+      s.querySelector('#eMan').onclick=()=>reviewSheet({id:uid(), store:'', category:'grocery', date:today(), total:0, items:[{name:'',canon:'',qty:1,unit:'pc',price:0}]}, true, arch);
       s.querySelector('#eRetry').onclick=()=>scanChooser(); });
   }
 }
 function parseJson(t){ if(!t) return null; try{ return JSON.parse(t); }catch(e){} const m=t.match(/\{[\s\S]*\}/); if(m){ try{ return JSON.parse(m[0]); }catch(e){} } return null; }
 
-function reviewSheet(bill, isNew, previews){
-  const b=JSON.parse(JSON.stringify(bill));
+function reviewSheet(bill, isNew, newArch){
+  const b=JSON.parse(JSON.stringify(bill)); b.photos=b.photos||[];
+  const fromScan=!!(newArch&&newArch.length);
+  const added=(newArch||[]).map(a=>({...a, url:URL.createObjectURL(a.blob)})); const removed=[];
+  const xIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
+  const stripHtml=()=>`<div class="thumbs">${b.photos.map((p,i)=>`<div class="thumb"><img data-photo="${esc(p.id)}" alt="Bill photo"><button class="rm" data-rmold="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}${added.map((a,i)=>`<div class="thumb"><img src="${a.url}" alt="Bill photo"><button class="rm" data-rmnew="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}<button class="thumb add" id="rPhotoAdd">+ Add<br>photo</button></div>`;
   const unitOpts=u=>['g','kg','ml','l','pc','m'].map(x=>`<option ${x===u?'selected':''}>${x}</option>`).join('');
   const rowHtml=(it,i)=>`<div class="itemrow" data-i="${i}"><div class="nm"><input type="text" data-f="name" value="${esc(it.name)}" placeholder="Item as on bill"><input type="text" data-f="canon" value="${esc(it.canon)}" placeholder="Track as…"></div>
     <span class="small faint" style="padding-left:2px">Qty / unit / amount</span><input type="number" inputmode="decimal" step="any" data-f="qty" value="${it.qty}"><select data-f="unit">${unitOpts(it.unit)}</select><input type="number" inputmode="decimal" step="any" data-f="price" value="${it.price}"><button class="x" data-del="${i}" aria-label="Remove item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="pu" data-pu></div></div>`;
   openSheet(`${sheetHd(isNew?'Check & save bill':'Edit bill')}<div class="bd">
-    ${previews?`<div class="preview">${previews.map(p=>`<img src="${p}" alt="">`).join('')}</div><div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread.</div>`:''}
+    <label class="f">Bill photo</label><div id="rPhotos">${stripHtml()}</div>
+    ${fromScan?`<div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread. The photo is saved with the bill.</div>`:'<div style="height:8px"></div>'}
     <div><label class="f">Store</label><input type="text" id="rStore" value="${esc(b.store)}" placeholder="Store name"></div>
     <div class="grid2" style="margin-top:10px"><div><label class="f">Date</label><input type="date" id="rDate" value="${esc(b.date)}"></div>
     <div><label class="f">Type</label><select id="rCat">${Object.entries(CATS).map(([k,c])=>`<option value="${k}" ${k===b.category?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div></div>
@@ -755,6 +882,16 @@ function reviewSheet(bill, isNew, previews){
     <div class="grid2" style="margin-top:10px;align-items:end"><div><label class="f">Bill total (₹)</label><input type="number" inputmode="decimal" step="any" id="rTotal" value="${b.total||''}" placeholder="Optional"></div><div id="rDiff"></div></div>
   </div><div class="ft">${isNew?'':`<button class="btn danger" id="rDel" style="flex:0 0 auto">Delete</button>`}<button class="btn ghost" data-close>Cancel</button><button class="btn" id="rSave">Save bill</button></div>`, s=>{
     const box=s.querySelector('#rItems');
+    const ph=s.querySelector('#rPhotos');
+    const redrawPhotos=()=>{ ph.innerHTML=stripHtml(); fillThumbs(ph); };
+    fillThumbs(ph);
+    ph.addEventListener('click',async e=>{
+      const o=e.target.closest('[data-rmold]'), n=e.target.closest('[data-rmnew]');
+      if(o){ removed.push(b.photos.splice(+o.dataset.rmold,1)[0].id); redrawPhotos(); return; }
+      if(n){ const a=added.splice(+n.dataset.rmnew,1)[0]; URL.revokeObjectURL(a.url); redrawPhotos(); return; }
+      if(e.target.closest('#rPhotoAdd')){ const fs=await pickPhotos(); if(!fs.length) return; toast('Preparing photo…');
+        for(const f of fs){ try{ const a=await makeArchive(f); added.push({...a, url:URL.createObjectURL(a.blob)}); }catch(err){ toast('Could not use that photo'); } } redrawPhotos(); }
+    });
     const sync=()=>{ box.querySelectorAll('.itemrow').forEach(r=>{ const i=+r.dataset.i, it=b.items[i]; r.querySelectorAll('[data-f]').forEach(inp=>{ const f=inp.dataset.f; it[f]= (f==='qty'||f==='price') ? (+inp.value||0) : inp.value; });
         const e=enrich(it); r.querySelector('[data-pu]').textContent = it.price ? `= ${money(e.unitPrice)} per ${UNIT_LABEL[e.base]}` : ''; });
       const sum=b.items.reduce((x,i)=>x+(+i.price||0),0); s.querySelector('#rSum').textContent=money(sum); s.querySelector('#rCount').textContent='('+b.items.length+')';
@@ -777,7 +914,11 @@ function reviewSheet(bill, isNew, previews){
       if(!b.items.length){ toast('Add at least one item with an amount'); return; }
       b.createdAt=b.createdAt||Date.now();
       const btn=s.querySelector('#rSave'); btn.disabled=true; btn.textContent='Saving…';
-      try{ await saveBill(b); closeSheet(); toast(isNew?'Bill saved — '+b.items.length+' items tracked':'Bill updated'); }catch(e){ btn.disabled=false; btn.textContent='Save bill'; }
+      let newIds=[];
+      if(added.length){ try{ const metas=await storePhotos(b.id, added); b.photos.push(...metas); newIds=metas.map(m=>m.id); }catch(err){ toast('The photo could not be stored on this device — the bill is saved without it'); } }
+      if(removed.length) await dropPhotos(removed);
+      if(!b.photos.length) delete b.photos;
+      try{ await saveBill(b); queuePhotos(newIds, removed); added.forEach(a=>URL.revokeObjectURL(a.url)); closeSheet(); toast(isNew?'Bill saved — '+b.items.length+' items tracked':'Bill updated'); }catch(e){ btn.disabled=false; btn.textContent='Save bill'; }
     };
   });
 }
@@ -787,11 +928,20 @@ function billSheet(id){
   const c=CATS[b.category]||CATS.other;
   openSheet(`${sheetHd(esc(b.store||'Bill'))}<div class="bd">
     <div class="row" style="margin-bottom:12px"><span class="chip">${c.icon} ${c.label}</span><span class="chip">${dateLabel(b.date)}</span>${b.demo?'<span class="chip">Sample</span>':''}</div>
+    <div class="thumbs" id="bPhotos" style="margin-bottom:10px">${(b.photos||[]).map((p,i)=>`<button class="thumb" data-view="${i}" aria-label="View bill photo"><img data-photo="${esc(p.id)}" alt="Bill photo"></button>`).join('')}<button class="thumb add" id="bPhotoAdd">${(b.photos||[]).length?'+ Add<br>photo':'+ Add bill<br>photo'}</button></div>
     <div class="card" style="padding:6px 12px"><table class="t"><thead><tr><th>Item</th><th class="n">Qty</th><th class="n">Amount</th></tr></thead><tbody>
     ${(b.items||[]).map(r=>{ const e=enrich(r); return `<tr data-item="${esc(itemKey(e))}" style="cursor:pointer"><td><b>${esc(e.canon)}</b>${e.name!==e.canon?`<div class="tiny faint">${esc(e.name)}</div>`:''}<div class="tiny faint">${money(e.unitPrice)}/${UNIT_LABEL[e.base]}</div></td><td class="n">${+e.qty.toFixed(3)} ${e.unit}</td><td class="n">${money(e.price)}</td></tr>`; }).join('')}
     </tbody><tfoot><tr><td><b>Total</b></td><td></td><td class="n"><b>${money(billTotal(b))}</b></td></tr></tfoot></table></div>
   </div><div class="ft"><button class="btn ghost" id="bEdit">Edit</button><button class="btn" data-close>Done</button></div>`, s=>{
-    s.querySelector('#bEdit').onclick=()=>reviewSheet(b,false); });
+    s.querySelector('#bEdit').onclick=()=>reviewSheet(b,false);
+    const bp=s.querySelector('#bPhotos'); fillThumbs(bp);
+    bp.addEventListener('click',async e=>{
+      const v=e.target.closest('[data-view]'); if(v){ photoViewer(b, +v.dataset.view); return; }
+      if(e.target.closest('#bPhotoAdd')){ const fs=await pickPhotos(); if(!fs.length) return; toast('Saving photo…');
+        try{ const arch=[]; for(const f of fs) arch.push(await makeArchive(f)); const metas=await storePhotos(b.id, arch);
+          const nb=JSON.parse(JSON.stringify(b)); nb.photos=[...(nb.photos||[]), ...metas]; await saveBill(nb); queuePhotos(metas.map(m=>m.id), []); toast('Photo saved with the bill'); billSheet(b.id); }
+        catch(err){ toast('Could not save that photo'); } }
+    }); });
 }
 
 function itemSheet(key){
@@ -838,11 +988,14 @@ function settingsSheet(){
     if (STANDALONE){
       s.querySelector('#stKeySave').onclick=()=>{ try{ const k=s.querySelector('#stKey').value.trim(); k?localStorage.setItem(KEY_K,k):localStorage.removeItem(KEY_K); localStorage.setItem(MODEL_K,s.querySelector('#stModel').value); }catch(e){} toast('Saved'); closeSheet(); };
       s.querySelector('#stKeyDel')&&(s.querySelector('#stKeyDel').onclick=()=>{ try{ localStorage.removeItem(KEY_K); }catch(e){} toast('API key removed'); settingsSheet(); });
-      s.querySelector('#stBackup').onclick=()=>{ downloadFile('bill-ledger-backup-'+today()+'.json', JSON.stringify({app:'bill-ledger', version:1, exported:new Date().toISOString(), bills:S.bills}), 'application/json'); toast('Backup downloaded'); };
+      s.querySelector('#stBackup').onclick=async()=>{ toast('Preparing backup…'); const photos={};
+        for(const id of S.bills.flatMap(b=>(b.photos||[]).map(p=>p.id))){ const rec=await PhotoDB.get(id); if(rec&&rec.blob) photos[id]={data:await blobToB64(rec.blob), w:rec.w, h:rec.h, size:rec.size}; }
+        downloadFile('bill-ledger-backup-'+today()+'.json', JSON.stringify({app:'bill-ledger', version:2, exported:new Date().toISOString(), bills:S.bills, photos}), 'application/json'); toast('Backup downloaded (includes bill photos)'); };
       const rf=s.querySelector('#stRestoreFile'); s.querySelector('#stRestore').onclick=()=>rf.click();
       rf.onchange=async()=>{ const f=rf.files[0]; if(!f) return; try{ const j=JSON.parse(await f.text()); const bs=Array.isArray(j)?j:j.bills; if(!Array.isArray(bs)) throw 0;
         const byId=new Map(S.bills.map(b=>[b.id,b])); let n=0; for(const b of bs){ if(b&&b.id&&b.date&&Array.isArray(b.items)){ b.updatedAt=b.updatedAt||Date.now(); byId.set(b.id,b); n++; } }
-        S.bills=[...byId.values()]; localSave(); render(); if (CLOUD_READY) markDirty(bs.filter(b=>b&&b.id).map(b=>b.id)); closeSheet(); toast(n+' bills restored'); }catch(e){ toast('That file is not a Bill Ledger backup'); } };
+        const pIds=[]; if(j.photos) for(const [id,v] of Object.entries(j.photos)){ try{ await PhotoDB.put(id,{blob:b64ToBlob(v.data,'image/jpeg'), w:v.w, h:v.h, size:v.size}); pIds.push(id); }catch(e){} }
+        S.bills=[...byId.values()]; localSave(); render(); queuePhotos(pIds, []); if (CLOUD_READY) markDirty(bs.filter(b=>b&&b.id).map(b=>b.id)); closeSheet(); toast(n+' bills restored'); }catch(e){ toast('That file is not a Bill Ledger backup'); } };
     }
     s.querySelector('#stWipe')&&(s.querySelector('#stWipe').onclick=()=>confirmSheet('Delete all bills?','This removes every bill and its price history. It can\'t be undone.','Delete all',async()=>{ for(const b of [...S.bills]) await deleteBill(b.id); toast('All bills deleted'); }));
   });

@@ -30,11 +30,11 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 ## How your data is stored
 
 - **On the phone:** every bill is saved in the browser's storage right away, so the app works offline. The app also asks the browser not to auto-clear this storage.
-- **In the cloud (when signed in):** every bill is also copied to your own account in **Google Firebase** (Cloud Firestore, Mumbai region), at `users/{your-uid}/bills/{billId}`. The [Firestore security rules](firestore.rules) mean each account can only ever read or write its own bills.
+- **In the cloud (when signed in):** every bill and its photo is also copied to your own account in **Google Firebase** (Cloud Firestore, Mumbai region), at `users/{your-uid}/bills/{billId}`. The [Firestore security rules](firestore.rules) mean each account can only ever read or write its own bills.
 - **Recovery:** on a new or reset phone, open the app, tap **Sign in to restore your bills**, sign in with Google or email, and everything downloads. Deletions sync too, and if the same bill is edited on two devices, the newest edit wins.
-- **Photos** are not stored. They're sent once to the Anthropic API to read the items, then discarded.
+- **Bill photos** are kept with each bill as a compact, high-contrast black-and-white copy (up to about 2 megapixels, usually 50–250 KB), so the text stays readable. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
 - **Your API key** is stored only in your browser.
-- **Extra safety:** **Settings → Download backup** still gives you a file copy any time you want one.
+- **Extra safety:** **Settings → Download backup** gives you a file copy, including photos, any time you want one.
 
 ## Cloud backup setup (already done for this repo)
 
