@@ -157,7 +157,7 @@ table.t .n{text-align:right}
 .swipe .li{position:relative;z-index:1;transition:transform .22s ease;touch-action:pan-y}
 .swipe.dragging .li{transition:none}
 .swipe:not(.open):not(.dragging) .swipe-del{visibility:hidden}
-.swipe-del{position:absolute;right:0;top:0;bottom:0;width:120px;padding-left:24px;background:var(--up);color:#fff;font-weight:800;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
+.swipe-del{position:absolute;right:0;top:0;bottom:0;width:96px;background:none;color:var(--up);font-weight:800;font-size:13px;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px}
 .undo{position:fixed;left:50%;bottom:96px;transform:translate(-50%,20px);background:var(--ink);color:var(--bg);padding:8px 8px 8px 16px;border-radius:14px;font-size:13.5px;font-weight:600;z-index:60;display:flex;align-items:center;justify-content:space-between;gap:14px;opacity:0;pointer-events:none;transition:opacity .2s,transform .2s;width:min(92vw,460px)}
 .undo span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .undo.show{opacity:1;transform:translate(-50%,0);pointer-events:auto}
@@ -210,7 +210,13 @@ const fyStartYear = k => +k.slice(3,7);
 const today = () => new Date().toISOString().slice(0,10);
 const dateLabel = d => { try{ const [y,m,dd]=d.split('-'); return (+dd)+' '+MONTHS[+m-1]+' '+y; }catch(e){ return d; } };
 const uid = () => 'b-' + Date.now().toString(36) + Math.random().toString(36).slice(2,7);
-const CATS = { grocery:{label:'Grocery',icon:'🧺'}, supermarket:{label:'Supermarket',icon:'🛒'}, textile:{label:'Textiles',icon:'🧵'}, other:{label:'Other',icon:'🧾'} };
+const CATS = {
+  grocery:{label:'Grocery',icon:'🧺'}, supermarket:{label:'Supermarket',icon:'🛒'}, essentials:{label:'Essentials',icon:'🧴'},
+  fashion:{label:'Fashion',icon:'👗'}, textile:{label:'Textiles',icon:'🧵'}, eatout:{label:'Eat out',icon:'🍽️'},
+  medical:{label:'Medical',icon:'💊'}, utilities:{label:'Utilities',icon:'💡'}, auto:{label:'Auto',icon:'🚗'},
+  travel:{label:'Travel',icon:'✈️'}, education:{label:'Education',icon:'📚'}, fitness:{label:'Fitness',icon:'🏋️'},
+  entertainment:{label:'Entertainment',icon:'🎬'}, other:{label:'Other',icon:'🧾'} };
+const CAT_KEYS = Object.keys(CATS);
 const UNIT_LABEL = { kg:'kg', l:'L', pc:'pc', m:'m' };
 function toast(msg){ const t=$('#toast'); t.textContent=msg; t.classList.add('show'); clearTimeout(t._h); t._h=setTimeout(()=>t.classList.remove('show'),2400); }
 
@@ -859,7 +865,7 @@ function viewHome(){
 }
 function billLi(b){
   const c=CATS[b.category]||CATS.other;
-  return `<div class="swipe" data-swipe="${esc(b.id)}"><button class="swipe-del" data-delbill="${esc(b.id)}" aria-label="Delete bill" tabindex="-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>Delete</button><button class="li" data-bill="${esc(b.id)}"><div class="avatar">${c.icon}</div><div class="main"><div class="t">${esc(b.store||'Unknown store')}</div><div class="s">${dateLabel(b.date)} · ${(b.items||[]).length} items${b.photos&&b.photos.length?' · 📷':''}${b.demo?' · sample':''}</div></div><div class="r">${money(billTotal(b))}</div></button></div>`;
+  return `<div class="swipe" data-swipe="${esc(b.id)}"><button class="swipe-del" data-delbill="${esc(b.id)}" aria-label="Delete bill" tabindex="-1"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M3 6h18M8 6V4h8v2M19 6l-1 14H6L5 6M10 11v6M14 11v6"/></svg>Delete</button><button class="li" data-bill="${esc(b.id)}"><div class="avatar">${c.icon}</div><div class="main"><div class="t">${esc(b.store||'Unknown store')}</div><div class="s">${dateLabel(b.date)} · ${(b.items||[]).length} item${(b.items||[]).length===1?'':'s'}${b.photos&&b.photos.length?' · 📷':''}${b.demo?' · sample':''}</div></div><div class="r">${money(billTotal(b))}</div></button></div>`;
 }
 function viewBills(){
   if (!S.bills.length) return `<h2>Bills</h2>`+emptyState();
@@ -911,7 +917,7 @@ function viewReports(){
   return `<h2>Reports</h2>
   <div class="seg"><button data-rt="month" class="${R.type==='month'?'on':''}">Monthly</button><button data-rt="fy" class="${R.type==='fy'?'on':''}">Financial year</button></div>
   <div class="grid2" style="margin-top:10px"><div><label class="f">Period</label><select id="repA">${opt(R.a)}</select></div><div><label class="f">Compared with</label><select id="repB">${opt(R.b)}</select></div></div>
-  <div class="chips" style="margin-top:12px">${['all','grocery','supermarket','textile','other'].map(k=>`<button class="chip ${R.cat===k?'on':''}" data-rc="${k}">${k==='all'?'All':CATS[k].icon+' '+CATS[k].label}</button>`).join('')}</div>
+  <div class="chips" style="margin-top:12px">${['all',...CAT_KEYS.filter(k=>S.bills.some(b=>b.category===k))].map(k=>`<button class="chip ${R.cat===k?'on':''}" data-rc="${k}">${k==='all'?'All':CATS[k].icon+' '+CATS[k].label}</button>`).join('')}</div>
   ${body}
   <div class="card" style="margin-top:10px"><b>Spending by ${R.type==='fy'?'financial year':'month'}</b><div class="chartwrap" id="spendChart" style="margin-top:10px"></div></div>
   <div class="row" style="margin-top:12px;gap:8px"><button class="btn ghost sm" data-act="copyReport">${STANDALONE?'Download':'Copy'} report (CSV)</button><button class="btn ghost sm" data-act="copyAll">${STANDALONE?'Download':'Copy'} all purchases (CSV)</button></div>`;
@@ -1023,10 +1029,10 @@ async function readBill(files){
     $('#pv').innerHTML=shr.map(s=>`<img src="${s.preview}" alt="">`).join('');
     $('#rdMsg').textContent='Reading items and prices…';
     const known=[...new Set(allPurchases('all').map(p=>p.canon))].slice(0,300);
-    const prompt=`You are reading photo(s) of ONE shopping bill / receipt from India (grocery store, supermarket, or textile/clothing shop). Multiple photos are parts of the same long bill, in order.
+    const prompt=`You are reading photo(s) of ONE bill / receipt / invoice from India (any kind of shop or service). Multiple photos are parts of the same long bill, in order.
 
 Return ONLY a JSON object, no prose, in exactly this shape:
-{"store": string, "billNo": string or null (the bill / invoice / receipt number as printed), "date": "YYYY-MM-DD" or null, "category": "grocery"|"supermarket"|"textile"|"other", "total": number (final amount payable) or null,
+{"store": string, "billNo": string or null (the bill / invoice / receipt number as printed), "date": "YYYY-MM-DD" or null, "category": one of ${JSON.stringify(CAT_KEYS)}, "total": number (final amount payable) or null,
  "items":[{"name": string, "canon": string, "qty": number, "unit": "g"|"kg"|"ml"|"l"|"pc"|"m", "price": number}]}
 
 Rules for each item:
@@ -1034,6 +1040,8 @@ Rules for each item:
 - "canon": a short, stable English product name used to track the price over time. Include the brand if printed and the product type, but NOT the pack size or quantity (e.g. "Aashirvaad Atta", "Toor Dal", "Amul Butter", "Cotton Shirt Fabric"). Title Case.${known.length?`\n- If the item is the same product as one of these already-tracked names, reuse that exact name: ${JSON.stringify(known)}`:''}
 - "qty" + "unit": the TOTAL quantity bought. Multiply pack size by count: 2 × 500 g packs → qty 1000, unit "g"; 1 × 5 kg bag → qty 5, unit "kg"; 3 soaps → qty 3, unit "pc"; 2.5 metres of cloth → qty 2.5, unit "m". Read pack sizes from the item text when the quantity column only shows a count.
 - "price": the final line amount actually paid for that line in rupees (after any per-item discount), as a number.
+- "category": grocery = provision/kirana store; supermarket = big-format store; essentials = household & personal care (toiletries, cleaning); fashion = clothes, footwear, accessories; textile = fabric/sarees/linen; eatout = restaurant, cafe, food delivery; medical = pharmacy, hospital, lab, clinic; utilities = electricity, water, gas, phone, internet, DTH; auto = fuel, vehicle service, parts, tolls, parking; travel = tickets, hotels, cabs; education = school/college fees, books, stationery, courses; fitness = gym, sports, yoga; entertainment = movies, events, subscriptions, games; other = anything else.
+- For service bills (electricity, fees, tickets, a restaurant meal), list each charged line as an item with qty 1 and unit "pc", unless a quantity is printed (e.g. litres of fuel → unit "l").
 - Skip lines that are not products: subtotals, taxes/GST summaries, round-off, savings, payment lines, carry bags only if free.
 - Dates in India are usually DD/MM/YYYY or DD-MM-YY; convert to YYYY-MM-DD.
 If something is unreadable, make your best guess and keep going.`;
@@ -1044,7 +1052,7 @@ If something is unreadable, make your best guess and keep going.`;
       : await apiRead(prompt, shr.map(s=>s.blob), readCtl.signal, onText);
     const parsed=parseJson(res.text);
     if(!parsed || !Array.isArray(parsed.items)) throw {message:'Could not read items from this photo.'};
-    const bill={ id:uid(), store:parsed.store||'', billNo:String(parsed.billNo||'').trim(), category:CATS[parsed.category]?parsed.category:'grocery',
+    const bill={ id:uid(), store:parsed.store||'', billNo:String(parsed.billNo||'').trim(), category:CATS[parsed.category]?parsed.category:'other',
       date:/^\d{4}-\d{2}-\d{2}$/.test(parsed.date||'')?parsed.date:today(), total:+parsed.total||0,
       items:parsed.items.map(i=>({name:i.name||'', canon:i.canon||i.name||'', qty:+i.qty||1, unit:normUnit(i.unit)==='cm'?'m':normUnit(i.unit), price:+i.price||0})).filter(i=>i.name||i.price) };
     reviewSheet(bill, true, arch);

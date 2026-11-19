@@ -7,13 +7,20 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 ## What it does
 
 - **Scan bills.** Take a photo of a bill, or pick several photos for a long one. Claude reads the store, date, and every item with its quantity and amount.
+- **Categories.** Each bill is sorted automatically into one of these, and you can change it on the review screen:
+  - Grocery, Supermarket, Essentials
+  - Fashion, Textiles, Eat out
+  - Medical, Utilities, Auto, Travel
+  - Education, Fitness, Entertainment, Other
+  
+  Reports can be filtered by any category you have bills in.
 - **Check before saving.** Fix anything that was misread. A warning appears if the items don't add up to the bill total.
 - **Duplicate alert.** If a scanned bill looks like one you've already saved, you get a warning and must confirm before saving. A bill counts as a likely duplicate if any of these match:
   - the same bill number
   - the same store, date and total
   - the same items on the same day
   - the same photo, matched by a fingerprint of the cleaned image
-- **Swipe to delete.** Swipe a bill left to reveal **Delete**. An **Undo** button appears for a few seconds afterwards.
+- **Swipe to delete.** Swipe a bill left to reveal a red trash icon and **Delete**. An **Undo** button appears for a few seconds afterwards.
 - **Fair comparisons.** Every price becomes a price per kg, litre, piece or metre, so a 500 g pack and a 1 kg bag compare correctly.
 - **One product across bills.** "Track as" groups the same product even when different shops print it differently.
 - **Reports.** Compare any month or financial year with another, filter by grocery, supermarket or textiles, and see:
