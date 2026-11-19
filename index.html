@@ -506,34 +506,167 @@ const PhotoDB = (()=>{
   };
 })();
 async function loadImg(src){ return new Promise((res,rej)=>{ const i=new Image(); i.onload=()=>res(i); i.onerror=rej; i.src=src; }); }
-/* Turn a camera photo into a compact, readable archive copy. */
-async function makeArchive(file){
+/* ---------- Document scan: find the bill, crop + straighten it, clean greyscale ----------
+   1. Find the bill: the paper is usually the largest bright region (Otsu threshold +
+      largest connected region on a small copy), and its 4 corners are the extreme points.
+   2. Perspective-correct that quad to a flat rectangle (homography, bilinear sampling).
+   3. Clean it up like a scanner: divide by the estimated paper brightness (removes
+      shadows and uneven light), then set levels so paper is white and text dark grey/black.
+   If no bill is found, the whole photo is cleaned instead; the crop can be adjusted by hand. */
+const srcCache=new WeakMap();
+async function getSource(file){
+  if(srcCache.has(file)) return srcCache.get(file);
   const url=URL.createObjectURL(file);
   try{
     const img=await loadImg(url);
-    // keep up to ~2.2 megapixels (long edge ≤ 2000px) so small receipt text stays readable
-    let sc=Math.min(1, 2000/Math.max(img.naturalWidth,img.naturalHeight), Math.sqrt(2.2e6/(img.naturalWidth*img.naturalHeight)));
-    for(let attempt=0; attempt<4; attempt++){
-      const w=Math.max(1,Math.round(img.naturalWidth*sc)), h=Math.max(1,Math.round(img.naturalHeight*sc));
-      const c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d');
-      x.imageSmoothingQuality='high'; x.drawImage(img,0,0,w,h);
-      // grayscale + contrast stretch (ignores the darkest/lightest 1.5%) so faint thermal print stays legible
-      const d=x.getImageData(0,0,w,h), p=d.data, hist=new Uint32Array(256);
-      for(let i=0;i<p.length;i+=4){ const y=(p[i]*299+p[i+1]*587+p[i+2]*114)/1000|0; p[i]=y; hist[y]++; }
-      const n=w*h; let lo=0, hi=255, acc=0; for(;lo<255;lo++){ acc+=hist[lo]; if(acc>n*0.015) break; } acc=0; for(;hi>0;hi--){ acc+=hist[hi]; if(acc>n*0.015) break; }
-      const span=Math.max(40, hi-lo);
-      for(let i=0;i<p.length;i+=4){ let v=(p[i]-lo)*255/span; v=v<0?0:v>255?255:v; p[i]=p[i+1]=p[i+2]=v; }
-      x.putImageData(d,0,0);
-      let blob=null;
-      for(const q of [0.62,0.54,0.46,0.4]){
-        blob=await new Promise(r=>c.toBlob(r,'image/jpeg',q));
-        if(blob && blob.size<=320*1024) return { blob, w, h, size:blob.size };   // target: under ~320 KB
-      }
-      if(attempt===3 && blob) return { blob, w, h, size:blob.size };
-      sc*=0.8;   // still too big: shrink a little and try again
-    }
-    throw new Error('Could not compress photo');
+    const s=Math.min(1, 2600/Math.max(img.naturalWidth,img.naturalHeight));
+    const w=Math.max(1,Math.round(img.naturalWidth*s)), h=Math.max(1,Math.round(img.naturalHeight*s));
+    const c=document.createElement('canvas'); c.width=w; c.height=h; const x=c.getContext('2d'); x.drawImage(img,0,0,w,h);
+    const d=x.getImageData(0,0,w,h).data, g=new Uint8ClampedArray(w*h);
+    for(let i=0,j=0;j<g.length;i+=4,j++) g[j]=(d[i]*299+d[i+1]*587+d[i+2]*114)/1000;
+    const src={g,w,h,canvas:c}; srcCache.set(file,src); return src;
   } finally { URL.revokeObjectURL(url); }
+}
+function detectQuad(src){
+  const s=Math.min(1, 360/Math.max(src.w,src.h)), sw=Math.max(8,Math.round(src.w*s)), sh=Math.max(8,Math.round(src.h*s));
+  const c=document.createElement('canvas'); c.width=sw; c.height=sh; const x=c.getContext('2d'); x.filter='blur(1px)'; x.drawImage(src.canvas,0,0,sw,sh);
+  const d=x.getImageData(0,0,sw,sh).data, N=sw*sh, g=new Uint8Array(N), hist=new Float64Array(256);
+  // "paperness": bright AND colourless. Paper stays neutral grey even in shadow, while tables, cloth and hands have colour.
+  for(let i=0,j=0;j<N;i+=4,j++){ const r=d[i],gg=d[i+1],b=d[i+2], mx=Math.max(r,gg,b), mn=Math.min(r,gg,b), sat=(mx-mn)/(mx+1);
+    g[j]=Math.max(0,Math.min(255, (r*299+gg*587+b*114)/1000*(1-1.6*sat))); hist[g[j]]++; }
+  // Otsu threshold: best split between "background" and "paper"
+  let sum=0; for(let i=0;i<256;i++) sum+=i*hist[i];
+  let sB=0,wB=0,best=0,t=128; for(let i=0;i<256;i++){ wB+=hist[i]; if(!wB) continue; const wF=N-wB; if(!wF) break; sB+=i*hist[i]; const mB=sB/wB, mF=(sum-sB)/wF, v=wB*wF*(mB-mF)*(mB-mF); if(v>best){ best=v; t=i; } }
+  // largest bright connected region, tracking its extreme points
+  const lab=new Int32Array(N), stack=new Int32Array(N); let bestC=null, id=0;
+  for(let p0=0;p0<N;p0++){
+    if(lab[p0]||g[p0]<=t) continue; id++;
+    let sp=0, n=0, edge=0; stack[sp++]=p0; lab[p0]=id;
+    const c={n:0, tl:[0,0,1e9], br:[0,0,-1e9], tr:[0,0,-1e9], bl:[0,0,1e9]};
+    while(sp){ const p=stack[--sp], px=p%sw, py=(p/sw)|0; n++;
+      if(px===0||py===0||px===sw-1||py===sh-1) edge++;
+      const a=px+py, b=px-py;
+      if(a<c.tl[2]) c.tl=[px,py,a]; if(a>c.br[2]) c.br=[px,py,a]; if(b>c.tr[2]) c.tr=[px,py,b]; if(b<c.bl[2]) c.bl=[px,py,b];
+      if(px>0 && !lab[p-1] && g[p-1]>t){ lab[p-1]=id; stack[sp++]=p-1; }
+      if(px<sw-1 && !lab[p+1] && g[p+1]>t){ lab[p+1]=id; stack[sp++]=p+1; }
+      if(py>0 && !lab[p-sw] && g[p-sw]>t){ lab[p-sw]=id; stack[sp++]=p-sw; }
+      if(py<sh-1 && !lab[p+sw] && g[p+sw]>t){ lab[p+sw]=id; stack[sp++]=p+sw; } }
+    c.n=n; c.edge=edge; if(!bestC || n>bestC.n) bestC=c;
+  }
+  if(!bestC) return null;
+  const frac=bestC.n/N;
+  if(frac<0.08) return null;                                   // nothing big enough to be the bill
+  if(frac>0.9 || bestC.edge>(sw+sh)*1.2) return null;           // bright everywhere: bill fills the photo or light background
+  let q=[bestC.tl,bestC.tr,bestC.br,bestC.bl].map(p=>[p[0],p[1]]);
+  const area=Math.abs(q.reduce((a,p,i)=>{ const r=q[(i+1)%4]; return a+p[0]*r[1]-r[0]*p[1]; },0))/2;
+  if(area<bestC.n*0.6 || area<N*0.06) return null;               // corners don't describe the region well
+  const cx=q.reduce((a,p)=>a+p[0],0)/4, cy=q.reduce((a,p)=>a+p[1],0)/4;
+  q=q.map(([px,py])=>[ Math.min(src.w,Math.max(0,(cx+(px-cx)*0.985)/s)), Math.min(src.h,Math.max(0,(cy+(py-cy)*0.985)/s)) ]);   // trim just inside the paper edge
+  return q;
+}
+const fullQuad = src => [[0,0],[src.w,0],[src.w,src.h],[0,src.h]];
+function homography(from,to){
+  const A=[],b=[]; for(let i=0;i<4;i++){ const [x,y]=from[i],[u,v]=to[i]; A.push([x,y,1,0,0,0,-u*x,-u*y]); b.push(u); A.push([0,0,0,x,y,1,-v*x,-v*y]); b.push(v); }
+  for(let i=0;i<8;i++){ let p=i; for(let r=i+1;r<8;r++) if(Math.abs(A[r][i])>Math.abs(A[p][i])) p=r; [A[i],A[p]]=[A[p],A[i]]; [b[i],b[p]]=[b[p],b[i]];
+    for(let r=i+1;r<8;r++){ const f=A[r][i]/A[i][i]; for(let k=i;k<8;k++) A[r][k]-=f*A[i][k]; b[r]-=f*b[i]; } }
+  const h=new Array(8); for(let i=7;i>=0;i--){ let s=b[i]; for(let k=i+1;k<8;k++) s-=A[i][k]*h[k]; h[i]=s/A[i][i]; } return h;
+}
+function warpGray(src, q, maxPx){
+  const dist=(a,b)=>Math.hypot(a[0]-b[0],a[1]-b[1]);
+  let W=Math.max(dist(q[0],q[1]),dist(q[3],q[2])), H=Math.max(dist(q[0],q[3]),dist(q[1],q[2]));
+  const k=Math.min(1, 2000/Math.max(W,H), Math.sqrt(maxPx/(W*H))); W=Math.max(1,Math.round(W*k)); H=Math.max(1,Math.round(H*k));
+  const h=homography([[0,0],[W,0],[W,H],[0,H]], q), out=new Uint8ClampedArray(W*H), g=src.g, sw=src.w, sh=src.h;
+  for(let v=0;v<H;v++) for(let u=0;u<W;u++){
+    const den=h[6]*u+h[7]*v+1, x=(h[0]*u+h[1]*v+h[2])/den, y=(h[3]*u+h[4]*v+h[5])/den;
+    const x0=Math.min(sw-2,Math.max(0,x|0)), y0=Math.min(sh-2,Math.max(0,y|0)), fx=Math.min(1,Math.max(0,x-x0)), fy=Math.min(1,Math.max(0,y-y0)), i=y0*sw+x0;
+    out[v*W+u]=(g[i]*(1-fx)+g[i+1]*fx)*(1-fy)+(g[i+sw]*(1-fx)+g[i+sw+1]*fx)*fy;
+  }
+  return {g:out,w:W,h:H};
+}
+function cleanDocument(img){
+  const {g,w,h}=img, B=Math.max(8,Math.round(Math.max(w,h)/48)), bw=Math.ceil(w/B), bh=Math.ceil(h/B);
+  let bg=new Float32Array(bw*bh);
+  for(let by=0;by<bh;by++) for(let bx=0;bx<bw;bx++){ let m=0; const y1=Math.min(h,(by+1)*B), x1=Math.min(w,(bx+1)*B);
+    for(let y=by*B;y<y1;y+=2) for(let x=bx*B;x<x1;x+=2){ const v=g[y*w+x]; if(v>m) m=v; } bg[by*bw+bx]=Math.max(m,40); }
+  for(let pass=0;pass<3;pass++){ const nb=new Float32Array(bg.length); for(let y=0;y<bh;y++) for(let x=0;x<bw;x++){ let s=0,n=0; for(let dy=-1;dy<=1;dy++) for(let dx=-1;dx<=1;dx++){ const xx=x+dx, yy=y+dy; if(xx>=0&&yy>=0&&xx<bw&&yy<bh){ s+=bg[yy*bw+xx]; n++; } } nb[y*bw+x]=s/n; } bg=nb; }
+  const norm=new Float32Array(w*h), hist=new Uint32Array(256);
+  for(let y=0;y<h;y++){ const gy=Math.min(bh-1.001,Math.max(0,(y+0.5)/B-0.5)), y0=gy|0, fy=gy-y0;
+    for(let x=0;x<w;x++){ const gx=Math.min(bw-1.001,Math.max(0,(x+0.5)/B-0.5)), x0=gx|0, fx=gx-x0, i=y0*bw+x0, y1=Math.min(bh-1,y0+1)*bw, x1=Math.min(bw-1,x0+1);
+      const b=(bg[i]*(1-fx)+bg[y0*bw+x1]*fx)*(1-fy)+(bg[y1+x0]*(1-fx)+bg[y1+x1]*fx)*fy;
+      const v=Math.min(255, g[y*w+x]/b*255); norm[y*w+x]=v; hist[v|0]++; } }
+  let acc=0, bp=0; for(;bp<200;bp++){ acc+=hist[bp]; if(acc>w*h*0.01) break; }
+  const wp=232, out=new Uint8ClampedArray(w*h);
+  for(let i=0;i<out.length;i++){ let v=(norm[i]-bp)/(wp-bp); v=v<0?0:v>1?1:v; out[i]=255*Math.pow(v,1.3); }
+  return {g:out,w,h};
+}
+/* When the paper edge can't be seen (e.g. white bill on a white table), trim to the printed content. */
+function trimToContent(img){
+  const {g,w,h}=img, rows=new Uint32Array(h), cols=new Uint32Array(w);
+  for(let y=0;y<h;y++) for(let x=0;x<w;x++) if(g[y*w+x]<110){ rows[y]++; cols[x]++; }
+  const rt=Math.max(2,w*0.004), ct=Math.max(2,h*0.002);
+  let y0=0,y1=h-1,x0=0,x1=w-1; while(y0<h&&rows[y0]<rt) y0++; while(y1>y0&&rows[y1]<rt) y1--; while(x0<w&&cols[x0]<ct) x0++; while(x1>x0&&cols[x1]<ct) x1--;
+  if(y1-y0<h*0.05 || x1-x0<w*0.05) return img;                       // no clear content found
+  const m=Math.round(Math.max(w,h)*0.03); x0=Math.max(0,x0-m); y0=Math.max(0,y0-m); x1=Math.min(w-1,x1+m); y1=Math.min(h-1,y1+m);
+  const nw=x1-x0+1, nh=y1-y0+1; if(nw*nh>w*h*0.92) return img;        // already tight
+  const out=new Uint8ClampedArray(nw*nh); for(let y=0;y<nh;y++) out.set(g.subarray((y+y0)*w+x0,(y+y0)*w+x0+nw), y*nw);
+  return {g:out,w:nw,h:nh,trimmed:true, box:[x0/w,y0/h,(x1+1)/w,(y1+1)/h]};
+}
+async function grayToJpeg(img){
+  const c=document.createElement('canvas'); c.width=img.w; c.height=img.h; const x=c.getContext('2d'), d=x.createImageData(img.w,img.h);
+  for(let i=0,j=0;j<img.g.length;i+=4,j++){ d.data[i]=d.data[i+1]=d.data[i+2]=img.g[j]; d.data[i+3]=255; }
+  x.putImageData(d,0,0);
+  let blob=null; for(const q of [0.7,0.6,0.5,0.42]){ blob=await new Promise(r=>c.toBlob(r,'image/jpeg',q)); if(blob && blob.size<=320*1024) break; }
+  return blob;
+}
+/* Turn a camera photo into a cropped, straightened, clean greyscale document copy. quad = optional manual corners. */
+async function makeArchive(file, quad){
+  const src=await getSource(file);
+  let auto=false; if(!quad){ quad=detectQuad(src); auto=!!quad; }
+  const q=quad||fullQuad(src);
+  let maxPx=2.2e6, out=null;
+  for(let attempt=0; attempt<3; attempt++){
+    let doc=cleanDocument(warpGray(src,q,maxPx));
+    if(!quad){                                                 // no edges found: trim to the printed area instead,
+      const t=trimToContent(doc);                              // then re-process just that area at full resolution
+      if(t.trimmed){ const [a,b,c,d]=t.box, X0=a*src.w, Y0=b*src.h, X1=c*src.w, Y1=d*src.h;
+        doc=cleanDocument(warpGray(src,[[X0,Y0],[X1,Y0],[X1,Y1],[X0,Y1]],maxPx)); doc.trimmed=true; } }
+    const blob=await grayToJpeg(doc);
+    out={ blob, w:doc.w, h:doc.h, size:blob.size, file, quad:q, cropped:!!quad||!!doc.trimmed, auto:auto||!!doc.trimmed };
+    if(blob.size<=320*1024) break; maxPx*=0.65;
+  }
+  return out;
+}
+/* Manual crop: drag the 4 corners onto the bill's edges. */
+async function cropEditor(entry, onDone){
+  const src=await getSource(entry.file);
+  let q=(entry.quad||fullQuad(src)).map(p=>[...p]);
+  const vw=Math.min(window.innerWidth,520)-32, vh=window.innerHeight*0.6, k=Math.min(vw/src.w, vh/src.h);
+  const dw=Math.round(src.w*k), dh=Math.round(src.h*k), r=Math.max(src.w,src.h)*0.028;
+  const layer=document.createElement('div'); layer.className='scrim show'; layer.style.zIndex=55;
+  const close=()=>layer.remove();
+  layer.innerHTML=`<div class="sheet"><div class="hd"><b>Adjust crop</b><button class="iconbtn" id="ceClose" aria-label="Close"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button></div><div class="bd"><p class="small muted" style="margin-bottom:10px">Drag the 4 corners onto the edges of the bill.</p>
+    <div id="ceWrap" style="position:relative;width:${dw}px;height:${dh}px;margin:0 auto;touch-action:none;user-select:none">
+      <img src="${src.canvas.toDataURL('image/jpeg',0.7)}" alt="" style="width:100%;height:100%;display:block;border-radius:8px">
+      <svg id="ceSvg" viewBox="0 0 ${src.w} ${src.h}" preserveAspectRatio="none" style="position:absolute;inset:0;width:100%;height:100%;overflow:visible"></svg></div></div>
+    <div class="ft"><button class="btn ghost" id="ceFull">Whole photo</button><button class="btn ghost" id="ceAuto">Auto</button><button class="btn" id="ceApply">Apply</button></div></div>`;
+  document.body.appendChild(layer); const s=layer;
+  s.querySelector('#ceClose').onclick=close; layer.addEventListener('click',e=>{ if(e.target===layer) close(); });
+  {
+    const svg=s.querySelector('#ceSvg'); let drag=-1;
+    const draw=()=>{ const pts=q.map(p=>p.join(',')).join(' ');
+      svg.innerHTML=`<path d="M0,0H${src.w}V${src.h}H0Z M${q.map(p=>p.join(',')).join(' L')}Z" fill="rgba(0,0,0,.45)" fill-rule="evenodd"/>
+        <polygon points="${pts}" fill="none" stroke="#3fae8f" stroke-width="${r*0.18}"/>
+        ${q.map((p,i)=>`<circle data-h="${i}" cx="${p[0]}" cy="${p[1]}" r="${r}" fill="rgba(63,174,143,.35)" stroke="#fff" stroke-width="${r*0.16}" style="cursor:grab"/>`).join('')}`; };
+    const toSrc=e=>{ const b=svg.getBoundingClientRect(); return [ Math.min(src.w,Math.max(0,(e.clientX-b.left)/b.width*src.w)), Math.min(src.h,Math.max(0,(e.clientY-b.top)/b.height*src.h)) ]; };
+    svg.addEventListener('pointerdown',e=>{ const p=toSrc(e); let bi=-1,bd=1e18; q.forEach((c,i)=>{ const d=(c[0]-p[0])**2+(c[1]-p[1])**2; if(d<bd){bd=d;bi=i;} });
+      if(bd<(r*3)**2){ drag=bi; svg.setPointerCapture(e.pointerId); e.preventDefault(); } });
+    svg.addEventListener('pointermove',e=>{ if(drag<0) return; q[drag]=toSrc(e); draw(); });
+    const end=()=>{ drag=-1; }; svg.addEventListener('pointerup',end); svg.addEventListener('pointercancel',end);
+    s.querySelector('#ceFull').onclick=()=>{ q=fullQuad(src); draw(); };
+    s.querySelector('#ceAuto').onclick=()=>{ const a=detectQuad(src); if(a){ q=a; draw(); } else toast('Couldn\'t find the bill edges automatically — drag the corners'); };
+    s.querySelector('#ceApply').onclick=async e=>{ e.target.disabled=true; e.target.textContent='Applying…'; const ne=await makeArchive(entry.file, q); close(); onDone(ne); };
+    draw();
+  }
 }
 const photoUrls=new Map();
 async function photoURL(id){
@@ -863,14 +996,14 @@ function reviewSheet(bill, isNew, newArch){
   const fromScan=!!(newArch&&newArch.length);
   const added=(newArch||[]).map(a=>({...a, url:URL.createObjectURL(a.blob)})); const removed=[];
   const xIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-  const stripHtml=()=>`<div class="thumbs">${b.photos.map((p,i)=>`<div class="thumb"><img data-photo="${esc(p.id)}" alt="Bill photo"><button class="rm" data-rmold="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}${added.map((a,i)=>`<div class="thumb"><img src="${a.url}" alt="Bill photo"><button class="rm" data-rmnew="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}<button class="thumb add" id="rPhotoAdd">+ Add<br>photo</button></div>`;
+  const stripHtml=()=>`<div class="thumbs">${b.photos.map((p,i)=>`<div class="thumb"><img data-photo="${esc(p.id)}" alt="Bill photo"><button class="rm" data-rmold="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}${added.map((a,i)=>`<div class="thumb" data-crop="${i}" style="cursor:pointer"><img src="${a.url}" alt="Bill photo"><button class="rm" data-rmnew="${i}" aria-label="Remove photo">${xIcon}</button><span style="position:absolute;left:4px;bottom:4px;right:4px;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 0;text-align:center">✂ Adjust</span></div>`).join('')}<button class="thumb add" id="rPhotoAdd">+ Add<br>photo</button></div>`;
   const unitOpts=u=>['g','kg','ml','l','pc','m'].map(x=>`<option ${x===u?'selected':''}>${x}</option>`).join('');
   const rowHtml=(it,i)=>`<div class="itemrow" data-i="${i}"><div class="nm"><input type="text" data-f="name" value="${esc(it.name)}" placeholder="Item as on bill"><input type="text" data-f="canon" value="${esc(it.canon)}" placeholder="Track as…"></div>
     <span class="small faint" style="padding-left:2px">Qty / unit / amount</span><input type="number" inputmode="decimal" step="any" data-f="qty" value="${it.qty}"><select data-f="unit">${unitOpts(it.unit)}</select><input type="number" inputmode="decimal" step="any" data-f="price" value="${it.price}"><button class="x" data-del="${i}" aria-label="Remove item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
     <div class="pu" data-pu></div></div>`;
   openSheet(`${sheetHd(isNew?'Check & save bill':'Edit bill')}<div class="bd">
     <label class="f">Bill photo</label><div id="rPhotos">${stripHtml()}</div>
-    ${fromScan?`<div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread. The photo is saved with the bill.</div>`:'<div style="height:8px"></div>'}
+    ${fromScan?`<div class="note info" style="margin:6px 0 12px">Check the items below against your bill and fix anything that was misread. The bill photo was ${added.some(a=>a.auto)?'cropped and ':''}cleaned up — tap it to adjust the crop.</div>`:'<div style="height:8px"></div>'}
     <div><label class="f">Store</label><input type="text" id="rStore" value="${esc(b.store)}" placeholder="Store name"></div>
     <div class="grid2" style="margin-top:10px"><div><label class="f">Date</label><input type="date" id="rDate" value="${esc(b.date)}"></div>
     <div><label class="f">Type</label><select id="rCat">${Object.entries(CATS).map(([k,c])=>`<option value="${k}" ${k===b.category?'selected':''}>${c.icon} ${c.label}</option>`).join('')}</select></div></div>
@@ -889,6 +1022,8 @@ function reviewSheet(bill, isNew, newArch){
       const o=e.target.closest('[data-rmold]'), n=e.target.closest('[data-rmnew]');
       if(o){ removed.push(b.photos.splice(+o.dataset.rmold,1)[0].id); redrawPhotos(); return; }
       if(n){ const a=added.splice(+n.dataset.rmnew,1)[0]; URL.revokeObjectURL(a.url); redrawPhotos(); return; }
+      const cr=e.target.closest('[data-crop]');
+      if(cr){ const i=+cr.dataset.crop; if(!added[i].file) return; cropEditor(added[i], ne=>{ URL.revokeObjectURL(added[i].url); added[i]={...ne, url:URL.createObjectURL(ne.blob)}; redrawPhotos(); }); return; }
       if(e.target.closest('#rPhotoAdd')){ const fs=await pickPhotos(); if(!fs.length) return; toast('Preparing photo…');
         for(const f of fs){ try{ const a=await makeArchive(f); added.push({...a, url:URL.createObjectURL(a.blob)}); }catch(err){ toast('Could not use that photo'); } } redrawPhotos(); }
     });

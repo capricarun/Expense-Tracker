@@ -32,7 +32,13 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 - **On the phone:** every bill is saved in the browser's storage right away, so the app works offline. The app also asks the browser not to auto-clear this storage.
 - **In the cloud (when signed in):** every bill and its photo is also copied to your own account in **Google Firebase** (Cloud Firestore, Mumbai region), at `users/{your-uid}/bills/{billId}`. The [Firestore security rules](firestore.rules) mean each account can only ever read or write its own bills.
 - **Recovery:** on a new or reset phone, open the app, tap **Sign in to restore your bills**, sign in with Google or email, and everything downloads. Deletions sync too, and if the same bill is edited on two devices, the newest edit wins.
-- **Bill photos** are kept with each bill as a compact, high-contrast black-and-white copy (up to about 2 megapixels, usually 50–250 KB), so the text stays readable. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
+- **Bill photos** are kept with each bill as a scanned-document copy:
+  - **Cropped:** the bill's edges are found automatically and the table or background is cut away.
+  - **Straightened:** a photo taken at an angle is flattened into a rectangle.
+  - **Cleaned:** shadows and uneven light are removed, giving white paper with dark grey or black text.
+  - **Small:** usually 40–100 KB.
+  
+  If the automatic crop misses, tap the photo on the review screen and drag the four corners. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
 - **Your API key** is stored only in your browser.
 - **Extra safety:** **Settings → Download backup** gives you a file copy, including photos, any time you want one.
 
@@ -50,6 +56,10 @@ To use your own Firebase project instead, repeat these steps and replace the val
 
 ## Tech
 
+- Document scan runs entirely in the browser with no libraries:
+  - Finds the bill as the largest "bright and colourless" region (Otsu threshold and connected components), which stays reliable in shadows and on coloured tables.
+  - Corner detection, then a perspective warp (homography with bilinear sampling).
+  - Background normalisation to remove shadows, plus levels to make the paper white.
 - One static `index.html`: vanilla JavaScript and hand-built SVG charts, with no build step and no dependencies.
 - Installable as a PWA (`manifest.webmanifest`, plus `sw.js` for offline use).
 - Bill reading uses the Claude Messages API with image input and streaming, called directly from the browser.
