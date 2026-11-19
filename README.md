@@ -8,6 +8,12 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 
 - **Scan bills.** Take a photo of a bill, or pick several photos for a long one. Claude reads the store, date, and every item with its quantity and amount.
 - **Check before saving.** Fix anything that was misread. A warning appears if the items don't add up to the bill total.
+- **Duplicate alert.** If a scanned bill looks like one you've already saved, you get a warning and must confirm before saving. A bill counts as a likely duplicate if any of these match:
+  - the same bill number
+  - the same store, date and total
+  - the same items on the same day
+  - the same photo, matched by a fingerprint of the cleaned image
+- **Swipe to delete.** Swipe a bill left to reveal **Delete**. An **Undo** button appears for a few seconds afterwards.
 - **Fair comparisons.** Every price becomes a price per kg, litre, piece or metre, so a 500 g pack and a 1 kg bag compare correctly.
 - **One product across bills.** "Track as" groups the same product even when different shops print it differently.
 - **Reports.** Compare any month or financial year with another, filter by grocery, supermarket or textiles, and see:
@@ -38,7 +44,11 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
   - **Cleaned:** shadows and uneven light are removed, giving white paper with dark grey or black text.
   - **Small:** usually 40–100 KB.
   
-  If the automatic crop misses, tap the photo on the review screen and drag the four corners. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
+  Whenever you add a photo, the **Adjust** screen opens:
+  - **Fit to bill:** drag the four corners onto the bill's edges.
+  - **Rotate 90°:** turn a sideways photo upright.
+  - **Straighten:** fine-tune the angle by up to ±15°; the page grows so nothing is cut off.
+  - **Preview:** shows exactly how the bill will be saved. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
 - **Your API key** is stored only in your browser.
 - **Extra safety:** **Settings → Download backup** gives you a file copy, including photos, any time you want one.
 
