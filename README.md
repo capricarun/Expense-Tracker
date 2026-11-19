@@ -30,26 +30,30 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
 ## How your data is stored
 
 - **On the phone:** every bill is saved in the browser's storage right away, so the app works offline. The app also asks the browser not to auto-clear this storage.
-- **In the cloud (when signed in):** every bill is also copied to your own account in Supabase (a Postgres database). Row Level Security means each account can only ever read or write its own bills.
-- **Recovery:** on a new or reset phone, open the app, tap **Sign in to restore your bills**, and everything downloads. Deletions sync too, and if the same bill is edited on two devices, the newest edit wins.
+- **In the cloud (when signed in):** every bill is also copied to your own account in **Google Firebase** (Cloud Firestore, Mumbai region), at `users/{your-uid}/bills/{billId}`. The [Firestore security rules](firestore.rules) mean each account can only ever read or write its own bills.
+- **Recovery:** on a new or reset phone, open the app, tap **Sign in to restore your bills**, sign in with Google or email, and everything downloads. Deletions sync too, and if the same bill is edited on two devices, the newest edit wins.
 - **Photos** are not stored. They're sent once to the Anthropic API to read the items, then discarded.
 - **Your API key** is stored only in your browser.
 - **Extra safety:** **Settings → Download backup** still gives you a file copy any time you want one.
 
-## Cloud backup setup (one time, ~5 minutes, free)
+## Cloud backup setup (already done for this repo)
 
-1. Create a free account at https://supabase.com and click **New project**. Pick the **Mumbai (ap-south-1)** region.
-2. In the project, open **SQL Editor → New query**, paste the contents of [`supabase/schema.sql`](supabase/schema.sql), and click **Run**.
-3. Go to **Authentication → URL Configuration** and set **Site URL** to `https://capricarun.github.io/Expense-Tracker/`. This makes the email confirmation and password reset links open the app.
-4. Go to **Project Settings → API Keys** and copy the **Project URL** and the **anon / publishable** key. Paste them into [`config.js`](config.js) and push.
-   The anon key is safe to publish, because Row Level Security protects the data.
+Firebase project `expense-tracker-fef8f` is on the free Spark plan:
+1. **Authentication:**
+   - Sign-in methods: **Email/Password** and **Google** are enabled.
+   - Authorized domains: `capricarun.github.io` is added.
+2. **Firestore Database:** Standard edition, location `asia-south1`, production mode.
+3. **Rules:** the contents of [`firestore.rules`](firestore.rules) are published in Firestore → Rules.
+4. **Web app config:** in [`config.js`](config.js). The values only identify the project and are safe to publish, because the rules protect the data.
+
+To use your own Firebase project instead, repeat these steps and replace the values in `config.js`.
 
 ## Tech
 
 - One static `index.html`: vanilla JavaScript and hand-built SVG charts, with no build step and no dependencies.
 - Installable as a PWA (`manifest.webmanifest`, plus `sw.js` for offline use).
 - Bill reading uses the Claude Messages API with image input and streaming, called directly from the browser.
-- Cloud backup: Supabase Auth (email + password) and Postgres with Row Level Security. Sync is local-first: there's a queue of unsynced changes, deletes are soft (a `deleted` flag) so other devices learn about them, and the newest `updated_at` wins in a conflict.
+- Cloud backup: Firebase Authentication (Google or email + password) and Cloud Firestore with per-user security rules. Sync is local-first: there's a queue of unsynced changes, deletes are soft (a `deleted` flag) so other devices learn about them, the newest `updatedAt` wins in a conflict, and writes are batched.
 - Deployed by GitHub Actions to GitHub Pages (`.github/workflows/pages.yml`) on every push to `main`.
 
 ## Deploy setup (one time)

@@ -249,76 +249,96 @@ async function apiRead(prompt, blobs, signal, onText){
         if(ev.type==='error') throw {message: ev.error?.message||'Bill reading failed.'}; }catch(e){ if(e&&e.message&&!(e instanceof SyntaxError)) throw e; } } }
   return { text };
 }
-/* ============ Cloud backup (Supabase), local-first ============
-   Every bill is saved on the phone first, then copied to the user's private cloud account.
-   On sign-in or app open, cloud and phone are merged (newest edit wins), so a new or reset
-   phone recovers everything after signing in. Deletions sync too. */
+/* ============ Cloud backup (Firebase: Auth + Firestore), local-first ============
+   Every bill is saved on the phone first, then copied to the user's private cloud account
+   at users/{uid}/bills/{billId}. On sign-in or app open, cloud and phone are merged
+   (newest edit wins), so a new or reset phone recovers everything after signing in.
+   Deletions sync too (soft delete). */
 const CFG = window.BILL_LEDGER_CONFIG || {};
-const CLOUD_READY = STANDALONE && !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
+const FB = CFG.firebase || {};
+const CLOUD_READY = STANDALONE && !!(FB.apiKey && FB.projectId);
 const SYNC_K='billledger.sync';
-const Cloud = { client:null, user:null, state:'off', last:0, err:'', running:false, again:false };
+const FB_V='10.14.1';
+const Cloud = { auth:null, fs:null, user:null, state:'off', last:0, err:'', running:false, again:false };
 function syncMeta(){ try{ return Object.assign({dirty:[],tomb:{},last:0}, JSON.parse(localStorage.getItem(SYNC_K)||'{}')); }catch(e){ return {dirty:[],tomb:{},last:0}; } }
 function setSyncMeta(m){ try{ localStorage.setItem(SYNC_K, JSON.stringify(m)); }catch(e){} }
 function markDirty(ids){ const m=syncMeta(); for(const id of ids){ if(!m.dirty.includes(id)) m.dirty.push(id); delete m.tomb[id]; } setSyncMeta(m); syncSoon(); }
 function markDeleted(id){ const m=syncMeta(); m.dirty=m.dirty.filter(x=>x!==id); m.tomb[id]=Date.now(); setSyncMeta(m); syncSoon(); }
 function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+function fbError(e){
+  const c=(e&&e.code)||''; const map={
+    'auth/invalid-credential':'Email or password is incorrect.', 'auth/wrong-password':'Email or password is incorrect.', 'auth/user-not-found':'No account with this email. Tap "Create account".',
+    'auth/email-already-in-use':'An account already exists for this email. Tap "Sign in".', 'auth/invalid-email':'That email address doesn\'t look right.',
+    'auth/weak-password':'Use a password with at least 6 characters.', 'auth/too-many-requests':'Too many attempts. Wait a few minutes and try again.',
+    'auth/network-request-failed':'No internet connection.', 'auth/popup-blocked':'The Google sign-in window was blocked. Allow pop-ups, or use email and password.',
+    'auth/popup-closed-by-user':'Google sign-in was closed before finishing.', 'auth/cancelled-popup-request':'Google sign-in was cancelled.',
+    'auth/unauthorized-domain':'This web address isn\'t allowed yet. Add it under Firebase → Authentication → Settings → Authorized domains.',
+    'auth/operation-not-allowed':'This sign-in method is turned off in Firebase → Authentication → Sign-in method.',
+    'permission-denied':'The cloud refused access. Check the Firestore rules (see README).', 'failed-precondition':'The Firestore database hasn\'t been created yet.',
+    'unavailable':'Cloud backup is unreachable right now. It will retry automatically.' };
+  return map[c] || (e&&e.message) || 'Something went wrong.';
+}
 async function cloudInit(){
   if(!CLOUD_READY) return;
   try{
-    if(!window.supabase) await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
-    Cloud.client = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
-    Cloud.client.auth.onAuthStateChange((ev, session)=>{
-      Cloud.user = session ? session.user : null;
-      if(ev==='PASSWORD_RECOVERY') newPasswordSheet();
-      if(ev==='SIGNED_IN' || ev==='INITIAL_SESSION'){ if(Cloud.user) syncSoon(50); }
-      setCloudState(Cloud.user ? Cloud.state==='off'||Cloud.state==='signedout' ? 'idle' : Cloud.state : 'signedout');
+    if(!window.firebase){
+      const base=`https://www.gstatic.com/firebasejs/${FB_V}/`;
+      await loadScript(base+'firebase-app-compat.js');
+      await Promise.all([loadScript(base+'firebase-auth-compat.js'), loadScript(base+'firebase-firestore-compat.js')]);
+    }
+    const app = firebase.apps.length ? firebase.app() : firebase.initializeApp(FB);
+    Cloud.auth = app.auth(); Cloud.fs = app.firestore();
+    Cloud.last = syncMeta().last || 0;
+    try{ const r = await Cloud.auth.getRedirectResult(); if(r && r.user) toast('Signed in — restoring and backing up your bills…'); }catch(e){ if(e && e.code) toast(fbError(e)); }
+    Cloud.auth.onAuthStateChanged(u=>{
+      Cloud.user = u || null;
+      setCloudState(u ? (Cloud.state==='off'||Cloud.state==='signedout' ? 'idle' : Cloud.state) : 'signedout');
+      if(u) syncSoon(50);
       render();
     });
-    const { data } = await Cloud.client.auth.getSession();
-    Cloud.user = data.session ? data.session.user : null;
-    Cloud.last = syncMeta().last || 0;
-    setCloudState(Cloud.user ? 'idle' : 'signedout');
-    if(Cloud.user) syncSoon(50);
     window.addEventListener('online', ()=>syncSoon(200));
     document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncSoon(300); });
   }catch(e){ setCloudState('error', 'Could not load cloud backup. Check your internet connection.'); }
 }
 function setCloudState(st, err){ Cloud.state=st; Cloud.err=err||''; renderCloudBadge(); }
 let syncTimer=null;
-function syncSoon(ms){ if(!Cloud.client||!Cloud.user) return; clearTimeout(syncTimer); syncTimer=setTimeout(syncNow, ms??800); }
+function syncSoon(ms){ if(!Cloud.fs||!Cloud.user) return; clearTimeout(syncTimer); syncTimer=setTimeout(syncNow, ms??800); }
+const billsCol = () => Cloud.fs.collection('users').doc(Cloud.user.uid).collection('bills');
+const clean = o => JSON.parse(JSON.stringify(o)); // Firestore rejects undefined values
+async function writeRows(rows){
+  for(let i=0;i<rows.length;i+=400){ const batch=Cloud.fs.batch(); for(const r of rows.slice(i,i+400)) batch.set(billsCol().doc(r.id), {data:r.data, deleted:r.deleted, updatedAt:r.updatedAt}); await batch.commit(); }
+}
 async function syncNow(){
-  if(!Cloud.client || !Cloud.user) return false;
+  if(!Cloud.fs || !Cloud.user) return false;
   if(Cloud.running){ Cloud.again=true; return false; }
   if(!navigator.onLine){ setCloudState('offline'); return false; }
   Cloud.running=true; setCloudState('syncing');
-  const T='bills', uidv=Cloud.user.id;
   try{
     // 1) push local changes and deletions
     let m=syncMeta();
     const rows=[];
-    for(const id of m.dirty){ const b=S.bills.find(x=>x.id===id); if(b) rows.push({user_id:uidv, id, data:b, deleted:false, updated_at:new Date(b.updatedAt||Date.now()).toISOString()}); }
-    for(const [id,ts] of Object.entries(m.tomb)) rows.push({user_id:uidv, id, data:null, deleted:true, updated_at:new Date(ts).toISOString()});
-    for(let i=0;i<rows.length;i+=200){ const {error}=await Cloud.client.from(T).upsert(rows.slice(i,i+200),{onConflict:'user_id,id'}); if(error) throw error; }
+    for(const id of m.dirty){ const b=S.bills.find(x=>x.id===id); if(b) rows.push({id, data:clean(b), deleted:false, updatedAt:b.updatedAt||Date.now()}); }
+    for(const [id,ts] of Object.entries(m.tomb)) rows.push({id, data:null, deleted:true, updatedAt:ts});
+    await writeRows(rows);
     const pushedDirty=new Set(m.dirty), pushedTomb=new Set(Object.keys(m.tomb));
     m=syncMeta(); m.dirty=m.dirty.filter(id=>!pushedDirty.has(id)); for(const id of pushedTomb) delete m.tomb[id]; setSyncMeta(m);
     // 2) pull everything in this account
-    const remote=[]; for(let from=0;;from+=1000){ const {data,error}=await Cloud.client.from(T).select('id,data,deleted,updated_at').order('id').range(from,from+999); if(error) throw error; remote.push(...data); if(data.length<1000) break; }
+    const snap=await billsCol().get({source:'server'});
+    const remote=snap.docs.map(d=>({id:d.id, ...d.data()}));
     // 3) merge: newest edit wins
     const local=new Map(S.bills.map(b=>[b.id,b])); const seen=new Set(); let changed=false;
-    for(const r of remote){ seen.add(r.id); const rt=Date.parse(r.updated_at)||0; const l=local.get(r.id);
+    for(const r of remote){ seen.add(r.id); const rt=+r.updatedAt||0; const l=local.get(r.id);
       if(r.deleted){ if(l && (l.updatedAt||0)<=rt && !syncMeta().dirty.includes(r.id)){ local.delete(r.id); changed=true; } continue; }
       if(r.data && (!l || (l.updatedAt||0)<rt)){ local.set(r.id, {...r.data, id:r.id, updatedAt:rt}); changed=true; } }
     // 4) bills on this phone the cloud has never seen (e.g. added before signing in) -> upload
     const missing=[...local.values()].filter(b=>!seen.has(b.id));
-    if(missing.length){ const up=missing.map(b=>({user_id:uidv, id:b.id, data:b, deleted:false, updated_at:new Date(b.updatedAt||Date.now()).toISOString()}));
-      for(let i=0;i<up.length;i+=200){ const {error}=await Cloud.client.from(T).upsert(up.slice(i,i+200),{onConflict:'user_id,id'}); if(error) throw error; } }
+    if(missing.length) await writeRows(missing.map(b=>({id:b.id, data:clean(b), deleted:false, updatedAt:b.updatedAt||Date.now()})));
     if(changed){ S.bills=[...local.values()]; localSave(); render(); }
     m=syncMeta(); m.last=Date.now(); setSyncMeta(m); Cloud.last=m.last;
     setCloudState(m.dirty.length||Object.keys(m.tomb).length ? 'idle' : 'synced');
     return true;
   }catch(e){
-    const msg = (e && (e.message||e.error_description)) || 'Sync failed';
-    setCloudState(navigator.onLine?'error':'offline', /relation|does not exist|schema cache/i.test(msg) ? 'The cloud database table is missing. Run supabase/schema.sql in your Supabase project.' : msg);
+    setCloudState(navigator.onLine?'error':'offline', fbError(e));
     return false;
   }finally{
     Cloud.running=false;
@@ -339,46 +359,50 @@ async function cloudSignOut(){
   await syncNow();
   const m=syncMeta();
   if(m.dirty.length || Object.keys(m.tomb).length){ toast('Some changes are not backed up yet — connect to the internet first'); return; }
-  await Cloud.client.auth.signOut();
+  await Cloud.auth.signOut();
   S.bills=[]; localSave(); setSyncMeta({dirty:[],tomb:{},last:0}); Cloud.user=null; setCloudState('signedout'); render(); closeSheet();
   toast('Signed out. Your bills are safe in the cloud.');
 }
-function newPasswordSheet(){
-  openSheet(`${sheetHd('Set a new password')}<div class="bd"><label class="f">New password</label><input type="password" id="npw" autocomplete="new-password" minlength="6" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%"></div>
-  <div class="ft"><button class="btn" id="npwSave">Save password</button></div>`, s=>{
-    s.querySelector('#npwSave').onclick=async()=>{ const pw=s.querySelector('#npw').value; if(pw.length<6){ toast('Use at least 6 characters'); return; }
-      const {error}=await Cloud.client.auth.updateUser({password:pw}); if(error){ toast(error.message); return; } closeSheet(); toast('Password updated'); syncSoon(50); }; });
+const IS_IOS_PWA = (window.navigator.standalone === true);
+async function googleSignIn(){
+  const p=new firebase.auth.GoogleAuthProvider(); p.setCustomParameters({prompt:'select_account'});
+  try{ await Cloud.auth.signInWithPopup(p); toast('Signed in — restoring and backing up your bills…'); closeSheet(); }
+  catch(e){
+    if(e && (e.code==='auth/popup-blocked' || e.code==='auth/operation-not-supported-in-this-environment')){ try{ await Cloud.auth.signInWithRedirect(p); return; }catch(e2){ e=e2; } }
+    toast(fbError(e) + (IS_IOS_PWA ? ' On iPhone you can also use email and password.' : ''));
+  }
 }
+const inputCss='height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%';
 function cloudCardHtml(){
   if(!STANDALONE) return '';
   if(!CLOUD_READY) return `<div class="card" style="margin-top:10px"><b>Cloud backup</b><p class="small muted" style="margin-top:4px">Not set up yet. Once it's connected (see the README), you can sign in and your bills will be saved to your account and restored on any device.</p></div>`;
+  if(!Cloud.auth) return `<div class="card" style="margin-top:10px"><b>Cloud backup</b><p class="small muted" style="margin-top:4px">${Cloud.err?esc(Cloud.err):'Connecting…'}</p></div>`;
   if(!Cloud.user) return `<div class="card" style="margin-top:10px"><b>Cloud backup</b>
     <p class="small muted" style="margin-top:4px">Sign in to save your bills to your private account. If you lose or reset this phone, sign in again and everything comes back.</p>
-    <label class="f" style="margin-top:10px">Email</label><input type="email" id="cEmail" autocomplete="email" inputmode="email" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%">
-    <label class="f" style="margin-top:10px">Password</label><input type="password" id="cPw" autocomplete="current-password" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%">
+    <button class="btn ghost block" id="cGoogle" style="margin-top:12px"><svg width="18" height="18" viewBox="0 0 48 48"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-7.9l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>Continue with Google</button>
+    <div class="row" style="margin:12px 0 2px;gap:8px"><span style="flex:1;height:1px;background:var(--line)"></span><span class="tiny faint">or use email</span><span style="flex:1;height:1px;background:var(--line)"></span></div>
+    <label class="f" style="margin-top:8px">Email</label><input type="email" id="cEmail" autocomplete="email" inputmode="email" style="${inputCss}">
+    <label class="f" style="margin-top:10px">Password</label><input type="password" id="cPw" autocomplete="current-password" style="${inputCss}">
     <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn sm" id="cIn">Sign in</button><button class="btn ghost sm" id="cUp">Create account</button><button class="btn ghost sm" id="cForgot" style="box-shadow:none;color:var(--accent)">Forgot password?</button></div>
     ${Cloud.err?`<div class="note warn tiny" style="margin-top:10px">${esc(Cloud.err)}</div>`:''}</div>`;
-  const st={synced:'All bills backed up', idle:'Backed up', syncing:'Backing up…', offline:'Offline — changes will back up when you\'re online', error:'Backup problem'}[Cloud.state]||'';
+  const st={synced:'All bills backed up', idle:'Backed up', syncing:'Backing up…', offline:'Offline — will back up later', error:'Backup problem'}[Cloud.state]||'';
   return `<div class="card" style="margin-top:10px"><div class="row between"><b>Cloud backup</b><span class="badge ${Cloud.state==='error'?'up':Cloud.state==='offline'?'flat':'down'}" style="${Cloud.state==='synced'||Cloud.state==='idle'?'background:var(--accent-soft);color:var(--accent)':''}">${st}</span></div>
     <p class="small muted" style="margin-top:6px">Signed in as <b>${esc(Cloud.user.email||'')}</b>${Cloud.last?` · last backup ${new Date(Cloud.last).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})}`:''}</p>
     ${Cloud.err&&Cloud.state==='error'?`<div class="note warn tiny" style="margin-top:8px">${esc(Cloud.err)}</div>`:''}
     <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="cSync">Back up now</button><button class="btn ghost sm" id="cOut">Sign out</button></div></div>`;
 }
 function wireCloudCard(s){
-  if(!CLOUD_READY) return;
+  if(!CLOUD_READY || !Cloud.auth) return;
   const q=x=>s.querySelector(x); const creds=()=>({email:(q('#cEmail')?.value||'').trim(), password:q('#cPw')?.value||''});
-  const busy=(b,on)=>{ b.disabled=on; };
-  q('#cIn')&&(q('#cIn').onclick=async e=>{ const c=creds(); if(!c.email||!c.password){ toast('Enter your email and password'); return; } busy(e.target,true);
-    const {error}=await Cloud.client.auth.signInWithPassword(c); busy(e.target,false);
-    if(error){ toast(/confirm/i.test(error.message)?'Please confirm your email first (check your inbox)':error.message); return; }
-    toast('Signed in — restoring and backing up your bills…'); closeSheet(); });
-  q('#cUp')&&(q('#cUp').onclick=async e=>{ const c=creds(); if(!c.email||c.password.length<6){ toast('Enter your email and a password of 6+ characters'); return; } busy(e.target,true);
-    const {data,error}=await Cloud.client.auth.signUp({...c, options:{emailRedirectTo:location.origin+location.pathname}}); busy(e.target,false);
-    if(error){ toast(error.message); return; }
-    if(data.session){ toast('Account created — backing up your bills…'); closeSheet(); }
-    else openSheet(`${sheetHd('Confirm your email')}<div class="bd"><p class="muted">We sent a link to <b>${esc(c.email)}</b>. Tap it to confirm your account, then come back here and sign in.</p></div><div class="ft"><button class="btn" data-close>OK</button></div>`); });
+  q('#cGoogle')&&(q('#cGoogle').onclick=googleSignIn);
+  q('#cIn')&&(q('#cIn').onclick=async e=>{ const c=creds(); if(!c.email||!c.password){ toast('Enter your email and password'); return; } e.target.disabled=true;
+    try{ await Cloud.auth.signInWithEmailAndPassword(c.email,c.password); toast('Signed in — restoring and backing up your bills…'); closeSheet(); }
+    catch(err){ e.target.disabled=false; toast(fbError(err)); } });
+  q('#cUp')&&(q('#cUp').onclick=async e=>{ const c=creds(); if(!c.email||c.password.length<6){ toast('Enter your email and a password of 6+ characters'); return; } e.target.disabled=true;
+    try{ await Cloud.auth.createUserWithEmailAndPassword(c.email,c.password); toast('Account created — backing up your bills…'); closeSheet(); }
+    catch(err){ e.target.disabled=false; toast(fbError(err)); } });
   q('#cForgot')&&(q('#cForgot').onclick=async()=>{ const {email}=creds(); if(!email){ toast('Type your email first'); return; }
-    const {error}=await Cloud.client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}); toast(error?error.message:'Password reset link sent to your email'); });
+    try{ await Cloud.auth.sendPasswordResetEmail(email); toast('Password reset link sent — check your email'); }catch(err){ toast(fbError(err)); } });
   q('#cSync')&&(q('#cSync').onclick=async()=>{ const ok=await syncNow(); toast(ok?'Backed up':'Could not back up right now'); settingsSheet(); });
   q('#cOut')&&(q('#cOut').onclick=()=>confirmSheet('Sign out?','Your bills stay safe in your cloud account and will be removed from this device. Sign in again to get them back.','Sign out',cloudSignOut));
 }
