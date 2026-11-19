@@ -157,7 +157,7 @@ a{color:var(--accent)}
 <div class="app">
   <header class="top">
     <div class="brand"><div class="logo"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M6 3h12v18l-3-2-3 2-3-2-3 2z"/><path d="M9 8h6M9 12h6"/></svg></div>Bill Ledger</div>
-    <button class="iconbtn" id="btnSettings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button>
+    <div class="row" style="gap:2px"><button class="iconbtn hide" id="cloudBadge" aria-label="Backup status"></button><button class="iconbtn" id="btnSettings" aria-label="Settings"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.8l.1.1a2 2 0 1 1-2.8 2.8l-.1-.1a1.7 1.7 0 0 0-1.8-.3 1.7 1.7 0 0 0-1 1.5V21a2 2 0 1 1-4 0v-.1a1.7 1.7 0 0 0-1.1-1.5 1.7 1.7 0 0 0-1.8.3l-.1.1a2 2 0 1 1-2.8-2.8l.1-.1a1.7 1.7 0 0 0 .3-1.8 1.7 1.7 0 0 0-1.5-1H3a2 2 0 1 1 0-4h.1a1.7 1.7 0 0 0 1.5-1.1 1.7 1.7 0 0 0-.3-1.8l-.1-.1a2 2 0 1 1 2.8-2.8l.1.1a1.7 1.7 0 0 0 1.8.3H9a1.7 1.7 0 0 0 1-1.5V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.8-.3l.1-.1a2 2 0 1 1 2.8 2.8l-.1.1a1.7 1.7 0 0 0-.3 1.8V9a1.7 1.7 0 0 0 1.5 1H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1z"/></svg></button></div>
   </header>
   <main id="view"></main>
 </div>
@@ -175,6 +175,7 @@ a{color:var(--accent)}
 <input type="file" id="fileCam" accept="image/*" capture="environment" class="hide">
 <input type="file" id="fileGal" accept="image/*" multiple class="hide">
 
+<script src="config.js"></script>
 <script>
 /* ============ utilities ============ */
 const $ = s => document.querySelector(s);
@@ -248,6 +249,139 @@ async function apiRead(prompt, blobs, signal, onText){
         if(ev.type==='error') throw {message: ev.error?.message||'Bill reading failed.'}; }catch(e){ if(e&&e.message&&!(e instanceof SyntaxError)) throw e; } } }
   return { text };
 }
+/* ============ Cloud backup (Supabase), local-first ============
+   Every bill is saved on the phone first, then copied to the user's private cloud account.
+   On sign-in or app open, cloud and phone are merged (newest edit wins), so a new or reset
+   phone recovers everything after signing in. Deletions sync too. */
+const CFG = window.BILL_LEDGER_CONFIG || {};
+const CLOUD_READY = STANDALONE && !!(CFG.supabaseUrl && CFG.supabaseAnonKey);
+const SYNC_K='billledger.sync';
+const Cloud = { client:null, user:null, state:'off', last:0, err:'', running:false, again:false };
+function syncMeta(){ try{ return Object.assign({dirty:[],tomb:{},last:0}, JSON.parse(localStorage.getItem(SYNC_K)||'{}')); }catch(e){ return {dirty:[],tomb:{},last:0}; } }
+function setSyncMeta(m){ try{ localStorage.setItem(SYNC_K, JSON.stringify(m)); }catch(e){} }
+function markDirty(ids){ const m=syncMeta(); for(const id of ids){ if(!m.dirty.includes(id)) m.dirty.push(id); delete m.tomb[id]; } setSyncMeta(m); syncSoon(); }
+function markDeleted(id){ const m=syncMeta(); m.dirty=m.dirty.filter(x=>x!==id); m.tomb[id]=Date.now(); setSyncMeta(m); syncSoon(); }
+function loadScript(src){ return new Promise((res,rej)=>{ const s=document.createElement('script'); s.src=src; s.onload=res; s.onerror=rej; document.head.appendChild(s); }); }
+async function cloudInit(){
+  if(!CLOUD_READY) return;
+  try{
+    if(!window.supabase) await loadScript('https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js');
+    Cloud.client = window.supabase.createClient(CFG.supabaseUrl, CFG.supabaseAnonKey, { auth:{ persistSession:true, autoRefreshToken:true, detectSessionInUrl:true } });
+    Cloud.client.auth.onAuthStateChange((ev, session)=>{
+      Cloud.user = session ? session.user : null;
+      if(ev==='PASSWORD_RECOVERY') newPasswordSheet();
+      if(ev==='SIGNED_IN' || ev==='INITIAL_SESSION'){ if(Cloud.user) syncSoon(50); }
+      setCloudState(Cloud.user ? Cloud.state==='off'||Cloud.state==='signedout' ? 'idle' : Cloud.state : 'signedout');
+      render();
+    });
+    const { data } = await Cloud.client.auth.getSession();
+    Cloud.user = data.session ? data.session.user : null;
+    Cloud.last = syncMeta().last || 0;
+    setCloudState(Cloud.user ? 'idle' : 'signedout');
+    if(Cloud.user) syncSoon(50);
+    window.addEventListener('online', ()=>syncSoon(200));
+    document.addEventListener('visibilitychange', ()=>{ if(document.visibilityState==='visible') syncSoon(300); });
+  }catch(e){ setCloudState('error', 'Could not load cloud backup. Check your internet connection.'); }
+}
+function setCloudState(st, err){ Cloud.state=st; Cloud.err=err||''; renderCloudBadge(); }
+let syncTimer=null;
+function syncSoon(ms){ if(!Cloud.client||!Cloud.user) return; clearTimeout(syncTimer); syncTimer=setTimeout(syncNow, ms??800); }
+async function syncNow(){
+  if(!Cloud.client || !Cloud.user) return false;
+  if(Cloud.running){ Cloud.again=true; return false; }
+  if(!navigator.onLine){ setCloudState('offline'); return false; }
+  Cloud.running=true; setCloudState('syncing');
+  const T='bills', uidv=Cloud.user.id;
+  try{
+    // 1) push local changes and deletions
+    let m=syncMeta();
+    const rows=[];
+    for(const id of m.dirty){ const b=S.bills.find(x=>x.id===id); if(b) rows.push({user_id:uidv, id, data:b, deleted:false, updated_at:new Date(b.updatedAt||Date.now()).toISOString()}); }
+    for(const [id,ts] of Object.entries(m.tomb)) rows.push({user_id:uidv, id, data:null, deleted:true, updated_at:new Date(ts).toISOString()});
+    for(let i=0;i<rows.length;i+=200){ const {error}=await Cloud.client.from(T).upsert(rows.slice(i,i+200),{onConflict:'user_id,id'}); if(error) throw error; }
+    const pushedDirty=new Set(m.dirty), pushedTomb=new Set(Object.keys(m.tomb));
+    m=syncMeta(); m.dirty=m.dirty.filter(id=>!pushedDirty.has(id)); for(const id of pushedTomb) delete m.tomb[id]; setSyncMeta(m);
+    // 2) pull everything in this account
+    const remote=[]; for(let from=0;;from+=1000){ const {data,error}=await Cloud.client.from(T).select('id,data,deleted,updated_at').order('id').range(from,from+999); if(error) throw error; remote.push(...data); if(data.length<1000) break; }
+    // 3) merge: newest edit wins
+    const local=new Map(S.bills.map(b=>[b.id,b])); const seen=new Set(); let changed=false;
+    for(const r of remote){ seen.add(r.id); const rt=Date.parse(r.updated_at)||0; const l=local.get(r.id);
+      if(r.deleted){ if(l && (l.updatedAt||0)<=rt && !syncMeta().dirty.includes(r.id)){ local.delete(r.id); changed=true; } continue; }
+      if(r.data && (!l || (l.updatedAt||0)<rt)){ local.set(r.id, {...r.data, id:r.id, updatedAt:rt}); changed=true; } }
+    // 4) bills on this phone the cloud has never seen (e.g. added before signing in) -> upload
+    const missing=[...local.values()].filter(b=>!seen.has(b.id));
+    if(missing.length){ const up=missing.map(b=>({user_id:uidv, id:b.id, data:b, deleted:false, updated_at:new Date(b.updatedAt||Date.now()).toISOString()}));
+      for(let i=0;i<up.length;i+=200){ const {error}=await Cloud.client.from(T).upsert(up.slice(i,i+200),{onConflict:'user_id,id'}); if(error) throw error; } }
+    if(changed){ S.bills=[...local.values()]; localSave(); render(); }
+    m=syncMeta(); m.last=Date.now(); setSyncMeta(m); Cloud.last=m.last;
+    setCloudState(m.dirty.length||Object.keys(m.tomb).length ? 'idle' : 'synced');
+    return true;
+  }catch(e){
+    const msg = (e && (e.message||e.error_description)) || 'Sync failed';
+    setCloudState(navigator.onLine?'error':'offline', /relation|does not exist|schema cache/i.test(msg) ? 'The cloud database table is missing. Run supabase/schema.sql in your Supabase project.' : msg);
+    return false;
+  }finally{
+    Cloud.running=false;
+    if(Cloud.again){ Cloud.again=false; syncSoon(300); }
+  }
+}
+function renderCloudBadge(){
+  const el=document.getElementById('cloudBadge'); if(!el) return;
+  if(!CLOUD_READY){ el.classList.add('hide'); return; }
+  el.classList.remove('hide');
+  const map={ synced:['var(--accent)','Backed up'], idle:['var(--accent)','Backed up'], syncing:['var(--ink3)','Backing up…'], offline:['var(--warn)','Offline — will back up later'], error:['var(--up)','Backup problem'], signedout:['var(--warn)','Not backed up'], off:['var(--ink3)','…'] };
+  const [c,t]=map[Cloud.state]||map.off;
+  el.innerHTML=`<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="${c}" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M18 10h-1.3A7 7 0 1 0 9 19h9a5 5 0 0 0 0-10z"/>${Cloud.state==='synced'||Cloud.state==='idle'?'<path d="M9.5 13.5l2 2 3.5-3.5"/>':Cloud.state==='syncing'?'<path d="M12 11v5M9.5 13.5L12 11l2.5 2.5"/>':'<path d="M12 11v3M12 16.5v.01"/>'}</svg>`;
+  el.title=t; el.setAttribute('aria-label',t);
+  const hb=document.getElementById('cloudNudge'); if(hb) hb.classList.toggle('hide', Cloud.state!=='signedout');
+}
+async function cloudSignOut(){
+  await syncNow();
+  const m=syncMeta();
+  if(m.dirty.length || Object.keys(m.tomb).length){ toast('Some changes are not backed up yet — connect to the internet first'); return; }
+  await Cloud.client.auth.signOut();
+  S.bills=[]; localSave(); setSyncMeta({dirty:[],tomb:{},last:0}); Cloud.user=null; setCloudState('signedout'); render(); closeSheet();
+  toast('Signed out. Your bills are safe in the cloud.');
+}
+function newPasswordSheet(){
+  openSheet(`${sheetHd('Set a new password')}<div class="bd"><label class="f">New password</label><input type="password" id="npw" autocomplete="new-password" minlength="6" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%"></div>
+  <div class="ft"><button class="btn" id="npwSave">Save password</button></div>`, s=>{
+    s.querySelector('#npwSave').onclick=async()=>{ const pw=s.querySelector('#npw').value; if(pw.length<6){ toast('Use at least 6 characters'); return; }
+      const {error}=await Cloud.client.auth.updateUser({password:pw}); if(error){ toast(error.message); return; } closeSheet(); toast('Password updated'); syncSoon(50); }; });
+}
+function cloudCardHtml(){
+  if(!STANDALONE) return '';
+  if(!CLOUD_READY) return `<div class="card" style="margin-top:10px"><b>Cloud backup</b><p class="small muted" style="margin-top:4px">Not set up yet. Once it's connected (see the README), you can sign in and your bills will be saved to your account and restored on any device.</p></div>`;
+  if(!Cloud.user) return `<div class="card" style="margin-top:10px"><b>Cloud backup</b>
+    <p class="small muted" style="margin-top:4px">Sign in to save your bills to your private account. If you lose or reset this phone, sign in again and everything comes back.</p>
+    <label class="f" style="margin-top:10px">Email</label><input type="email" id="cEmail" autocomplete="email" inputmode="email" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%">
+    <label class="f" style="margin-top:10px">Password</label><input type="password" id="cPw" autocomplete="current-password" style="height:42px;border-radius:12px;border:1px solid var(--line);background:var(--card);padding:0 12px;width:100%">
+    <div class="row" style="margin-top:10px;flex-wrap:wrap"><button class="btn sm" id="cIn">Sign in</button><button class="btn ghost sm" id="cUp">Create account</button><button class="btn ghost sm" id="cForgot" style="box-shadow:none;color:var(--accent)">Forgot password?</button></div>
+    ${Cloud.err?`<div class="note warn tiny" style="margin-top:10px">${esc(Cloud.err)}</div>`:''}</div>`;
+  const st={synced:'All bills backed up', idle:'Backed up', syncing:'Backing up…', offline:'Offline — changes will back up when you\'re online', error:'Backup problem'}[Cloud.state]||'';
+  return `<div class="card" style="margin-top:10px"><div class="row between"><b>Cloud backup</b><span class="badge ${Cloud.state==='error'?'up':Cloud.state==='offline'?'flat':'down'}" style="${Cloud.state==='synced'||Cloud.state==='idle'?'background:var(--accent-soft);color:var(--accent)':''}">${st}</span></div>
+    <p class="small muted" style="margin-top:6px">Signed in as <b>${esc(Cloud.user.email||'')}</b>${Cloud.last?` · last backup ${new Date(Cloud.last).toLocaleString('en-IN',{dateStyle:'medium',timeStyle:'short'})}`:''}</p>
+    ${Cloud.err&&Cloud.state==='error'?`<div class="note warn tiny" style="margin-top:8px">${esc(Cloud.err)}</div>`:''}
+    <div class="row" style="margin-top:10px"><button class="btn ghost sm" id="cSync">Back up now</button><button class="btn ghost sm" id="cOut">Sign out</button></div></div>`;
+}
+function wireCloudCard(s){
+  if(!CLOUD_READY) return;
+  const q=x=>s.querySelector(x); const creds=()=>({email:(q('#cEmail')?.value||'').trim(), password:q('#cPw')?.value||''});
+  const busy=(b,on)=>{ b.disabled=on; };
+  q('#cIn')&&(q('#cIn').onclick=async e=>{ const c=creds(); if(!c.email||!c.password){ toast('Enter your email and password'); return; } busy(e.target,true);
+    const {error}=await Cloud.client.auth.signInWithPassword(c); busy(e.target,false);
+    if(error){ toast(/confirm/i.test(error.message)?'Please confirm your email first (check your inbox)':error.message); return; }
+    toast('Signed in — restoring and backing up your bills…'); closeSheet(); });
+  q('#cUp')&&(q('#cUp').onclick=async e=>{ const c=creds(); if(!c.email||c.password.length<6){ toast('Enter your email and a password of 6+ characters'); return; } busy(e.target,true);
+    const {data,error}=await Cloud.client.auth.signUp({...c, options:{emailRedirectTo:location.origin+location.pathname}}); busy(e.target,false);
+    if(error){ toast(error.message); return; }
+    if(data.session){ toast('Account created — backing up your bills…'); closeSheet(); }
+    else openSheet(`${sheetHd('Confirm your email')}<div class="bd"><p class="muted">We sent a link to <b>${esc(c.email)}</b>. Tap it to confirm your account, then come back here and sign in.</p></div><div class="ft"><button class="btn" data-close>OK</button></div>`); });
+  q('#cForgot')&&(q('#cForgot').onclick=async()=>{ const {email}=creds(); if(!email){ toast('Type your email first'); return; }
+    const {error}=await Cloud.client.auth.resetPasswordForEmail(email,{redirectTo:location.origin+location.pathname}); toast(error?error.message:'Password reset link sent to your email'); });
+  q('#cSync')&&(q('#cSync').onclick=async()=>{ const ok=await syncNow(); toast(ok?'Backed up':'Could not back up right now'); settingsSheet(); });
+  q('#cOut')&&(q('#cOut').onclick=()=>confirmSheet('Sign out?','Your bills stay safe in your cloud account and will be removed from this device. Sign in again to get them back.','Sign out',cloudSignOut));
+}
 function downloadFile(name, text, type){
   const a=document.createElement('a'); a.href=URL.createObjectURL(new Blob([text],{type})); a.download=name; document.body.appendChild(a); a.click();
   setTimeout(()=>{ URL.revokeObjectURL(a.href); a.remove(); }, 1000);
@@ -282,12 +416,14 @@ async function saveBill(b){
     try{ await S.col.doc(b.id).set(body); }
     catch(e){ toast(e && e.code==='quota_exceeded' ? 'Storage is full — delete old bills first' : 'Could not save — try again'); throw e; }
   } else {
+    b.updatedAt=Date.now();
     const i=S.bills.findIndex(x=>x.id===b.id); if(i>=0) S.bills[i]=b; else S.bills.push(b); localSave(); render();
+    if (CLOUD_READY) markDirty([b.id]);
   }
 }
 async function deleteBill(id){
   if (S.mode==='cloud'){ await S.col.doc(id).delete(); }
-  else { S.bills=S.bills.filter(b=>b.id!==id); localSave(); render(); }
+  else { S.bills=S.bills.filter(b=>b.id!==id); localSave(); render(); if (CLOUD_READY) markDeleted(id); }
 }
 
 /* ============ analytics ============ */
@@ -352,7 +488,8 @@ function render(){
 function emptyState(){
   return `<div class="card empty"><div class="big">🧾</div><b style="font-size:17px">Scan your first bill</b>
   <p>Take a photo of a grocery, supermarket or textile bill. Each item and its price is read and saved, so you can see how prices change month by month and year by year.</p>
-  <div class="row" style="justify-content:center;flex-wrap:wrap"><button class="btn" data-act="scan">Scan a bill</button><button class="btn ghost" data-act="demo">Try with sample data</button></div></div>`;
+  <div class="row" style="justify-content:center;flex-wrap:wrap"><button class="btn" data-act="scan">Scan a bill</button><button class="btn ghost" data-act="demo">Try with sample data</button></div>
+  ${CLOUD_READY && !Cloud.user ? `<p class="small" style="margin:16px 0 0">Used Bill Ledger before? <button data-act="settings" style="color:var(--accent);font-weight:700">Sign in to restore your bills</button></p>` : ''}</div>`;
 }
 function viewHome(){
   if (!S.bills.length) return `<h2>Hello 👋</h2>` + emptyState();
@@ -363,7 +500,8 @@ function viewHome(){
   const fys=periodsList('fy'); const fyc = fys[1] ? compare('fy',fys[0],fys[1],'all') : null;
   const rises = cmp ? cmp.rows.filter(r=>r.chg>0.5).slice(0,4) : [];
   const recent=[...S.bills].sort((a,b)=>b.date.localeCompare(a.date)||(b.createdAt||0)-(a.createdAt||0)).slice(0,5);
-  return `<h2>${ymLabel(cur)}</h2>
+  const nudge = CLOUD_READY ? `<button class="note warn row ${Cloud.state==='signedout'?'':'hide'}" id="cloudNudge" data-act="settings" style="width:100%;margin-bottom:12px;text-align:left"><span style="flex:1"><b>Your bills aren't backed up.</b> Sign in to Cloud backup so they can be recovered if this phone is lost.</span><span>›</span></button>` : '';
+  return nudge + `<h2>${ymLabel(cur)}</h2>
   <div class="hero"><div class="label">Spent this month</div><div class="val">${money(spendCur,0)}</div>
   <div class="sub">${S.bills.filter(b=>ym(b.date)===cur).length} bills${prev?` · ${money(spendPrev,0)} in ${ymLabel(prev)}`:''}</div></div>
   <div class="grid2" style="margin-top:10px">
@@ -651,9 +789,10 @@ function itemSheet(key){
 function settingsSheet(){
   const demo=S.bills.filter(b=>b.demo).length;
   openSheet(`${sheetHd('Settings')}<div class="bd">
-    <div class="card"><div class="row"><span class="status-dot" style="background:${S.mode==='cloud'?'var(--accent)':'var(--warn)'}"></span><b>${S.mode==='cloud'?'Synced to your account':'Saved on this device only'}</b></div>
-    <p class="small muted" style="margin-top:6px">${S.mode==='cloud'?'Your bills are private to you and available on your phone and computer when you open this app signed in.':STANDALONE?'Bills are stored in this browser. Use Backup regularly, and Restore to move them to another phone or computer.':'Sign in to Claude and open this app from its link to keep bills across devices.'}</p>
+    <div class="card"><div class="row"><span class="status-dot" style="background:${S.mode==='cloud'||Cloud.user?'var(--accent)':'var(--warn)'}"></span><b>${S.mode==='cloud'?'Synced to your account':(Cloud.user?'Saved on this device + cloud backup':'Saved on this device only')}</b></div>
+    <p class="small muted" style="margin-top:6px">${S.mode==='cloud'?'Your bills are private to you and available on your phone and computer when you open this app signed in.':STANDALONE?(Cloud.user?'Every bill is saved on this phone and copied to your cloud account, so it can be recovered on any device.':'Bills are stored in this browser. Sign in to Cloud backup below so they can be recovered if this phone is lost or reset.'):'Sign in to Claude and open this app from its link to keep bills across devices.'}</p>
     <p class="small muted" style="margin-top:6px">${S.bills.length} bills · ${allPurchases('all').length} item lines · ${itemsIndex().length} products tracked</p></div>
+    ${cloudCardHtml()}
     <div class="card" style="margin-top:10px"><b>Financial year</b><p class="small muted" style="margin-top:4px">Reports use the Indian financial year, April to March (e.g. FY 2025-26 = Apr 2025 – Mar 2026).</p></div>
     ${STANDALONE?`<div class="card" style="margin-top:10px"><b>Bill reading</b>
       <p class="small muted" style="margin-top:4px">Photos are read by Claude using your own <a href="https://console.anthropic.com/settings/keys" target="_blank" rel="noopener">Anthropic API key</a>. The key is saved only in this browser and sent only to Anthropic. Each bill costs a few paise to a rupee or two of API usage.</p>
@@ -671,14 +810,15 @@ function settingsSheet(){
     s.querySelector('#stDemoOff')&&(s.querySelector('#stDemoOff').onclick=()=>confirmSheet('Remove sample data?','Only the sample bills are removed. Your own bills stay.','Remove',async()=>{ await removeDemo(); toast('Sample data removed'); }));
     s.querySelector('#stDemoOn')&&(s.querySelector('#stDemoOn').onclick=()=>{ closeSheet(); loadDemo(); });
     s.querySelector('#stCopy').onclick=()=>copyCsv(allCsv(),'all-purchases');
+    wireCloudCard(s);
     if (STANDALONE){
       s.querySelector('#stKeySave').onclick=()=>{ try{ const k=s.querySelector('#stKey').value.trim(); k?localStorage.setItem(KEY_K,k):localStorage.removeItem(KEY_K); localStorage.setItem(MODEL_K,s.querySelector('#stModel').value); }catch(e){} toast('Saved'); closeSheet(); };
       s.querySelector('#stKeyDel')&&(s.querySelector('#stKeyDel').onclick=()=>{ try{ localStorage.removeItem(KEY_K); }catch(e){} toast('API key removed'); settingsSheet(); });
       s.querySelector('#stBackup').onclick=()=>{ downloadFile('bill-ledger-backup-'+today()+'.json', JSON.stringify({app:'bill-ledger', version:1, exported:new Date().toISOString(), bills:S.bills}), 'application/json'); toast('Backup downloaded'); };
       const rf=s.querySelector('#stRestoreFile'); s.querySelector('#stRestore').onclick=()=>rf.click();
       rf.onchange=async()=>{ const f=rf.files[0]; if(!f) return; try{ const j=JSON.parse(await f.text()); const bs=Array.isArray(j)?j:j.bills; if(!Array.isArray(bs)) throw 0;
-        const byId=new Map(S.bills.map(b=>[b.id,b])); let n=0; for(const b of bs){ if(b&&b.id&&b.date&&Array.isArray(b.items)){ byId.set(b.id,b); n++; } }
-        S.bills=[...byId.values()]; localSave(); render(); closeSheet(); toast(n+' bills restored'); }catch(e){ toast('That file is not a Bill Ledger backup'); } };
+        const byId=new Map(S.bills.map(b=>[b.id,b])); let n=0; for(const b of bs){ if(b&&b.id&&b.date&&Array.isArray(b.items)){ b.updatedAt=b.updatedAt||Date.now(); byId.set(b.id,b); n++; } }
+        S.bills=[...byId.values()]; localSave(); render(); if (CLOUD_READY) markDirty(bs.filter(b=>b&&b.id).map(b=>b.id)); closeSheet(); toast(n+' bills restored'); }catch(e){ toast('That file is not a Bill Ledger backup'); } };
     }
     s.querySelector('#stWipe')&&(s.querySelector('#stWipe').onclick=()=>confirmSheet('Delete all bills?','This removes every bill and its price history. It can\'t be undone.','Delete all',async()=>{ for(const b of [...S.bills]) await deleteBill(b.id); toast('All bills deleted'); }));
   });
@@ -722,10 +862,10 @@ async function loadDemo(){
   }
   toast('Adding sample bills…');
   if(S.mode==='cloud'){ for(let i=0;i<bills.length;i+=6){ await Promise.all(bills.slice(i,i+6).map(b=>saveBill(b).catch(()=>{}))); } }
-  else { S.bills.push(...bills); localSave(); render(); }
+  else { const t=Date.now(); bills.forEach(b=>b.updatedAt=t); S.bills.push(...bills); localSave(); render(); if (CLOUD_READY) markDirty(bills.map(b=>b.id)); }
   toast(bills.length+' sample bills added — open Reports');
 }
-async function removeDemo(){ const ds=S.bills.filter(b=>b.demo); if(S.mode==='cloud'){ for(let i=0;i<ds.length;i+=6) await Promise.all(ds.slice(i,i+6).map(b=>S.col.doc(b.id).delete().catch(()=>{}))); } else { S.bills=S.bills.filter(b=>!b.demo); localSave(); render(); } }
+async function removeDemo(){ const ds=S.bills.filter(b=>b.demo); if(S.mode==='cloud'){ for(let i=0;i<ds.length;i+=6) await Promise.all(ds.slice(i,i+6).map(b=>S.col.doc(b.id).delete().catch(()=>{}))); } else { S.bills=S.bills.filter(b=>!b.demo); localSave(); render(); if (CLOUD_READY) ds.forEach(b=>markDeleted(b.id)); } }
 
 /* ============ wiring ============ */
 document.addEventListener('click',e=>{
@@ -735,16 +875,19 @@ document.addEventListener('click',e=>{
   if(t.dataset.bill){ billSheet(t.dataset.bill); return; }
   if(t.dataset.item){ itemSheet(t.dataset.item); return; }
   const a=t.dataset.act;
+  if(a==='settings'){ settingsSheet(); return; }
   if(a==='scan') scanChooser(); else if(a==='demo') loadDemo(); else if(a==='copyReport') copyCsv(reportCsv(),'price-report'); else if(a==='copyAll') copyCsv(allCsv(),'all-purchases');
 });
 $('#tabScan').onclick=scanChooser;
 $('#btnSettings').onclick=settingsSheet;
+$('#cloudBadge').onclick=settingsSheet;
 document.addEventListener('keydown',e=>{ if(e.key==='Escape') closeSheet(); });
 
 render();
 (async()=>{
   if (!STANDALONE){ try{ sample = await claude.use('sample'); }catch(e){ sample=null; } initData(); }
   else { S.mode='local'; S.bills=localLoad(); render(); }
+  if (STANDALONE){ try{ navigator.storage && navigator.storage.persist && navigator.storage.persist(); }catch(e){} cloudInit(); }
   if (STANDALONE && 'serviceWorker' in navigator && location.protocol==='https:'){ navigator.serviceWorker.register('sw.js').catch(()=>{}); }
 })();
 </script>
