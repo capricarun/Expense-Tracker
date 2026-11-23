@@ -159,6 +159,7 @@ table.t td{padding:9px 6px;border-bottom:1px solid var(--line)}
 table.t .n{text-align:right}
 .toast{position:fixed;left:50%;bottom:96px;transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:10px 16px;border-radius:12px;font-size:13.5px;font-weight:600;z-index:60;opacity:0;transition:opacity .2s;pointer-events:none;max-width:90%}
 .toast.show{opacity:1}
+.pvft .btn{padding:0 6px;font-size:13.5px;min-width:0}
 .pills{display:flex;flex-wrap:wrap;gap:8px}
 .chip .cnt{margin-left:6px;font-size:11px;font-weight:700;opacity:.55;font-variant-numeric:tabular-nums}
 .chip.dim:not(.on){opacity:.5}
@@ -686,8 +687,9 @@ function hashDistance(a,b){ if(!a||!b||a.length!==b.length) return 64; let d=0; 
 /* The full pipeline: crop/straighten (quad) -> clean -> trim (auto only) -> quarter turns -> fine tilt. */
 function processDoc(src, quad, opts, maxPx){
   const q=quad||fullQuad(src);
-  let doc=cleanDocument(warpGray(src,q,maxPx));
-  if(!quad){ const t=trimToContent(doc);
+  let doc=warpGray(src,q,maxPx);
+  if(!opts.noClean) doc=cleanDocument(doc);
+  if(!quad && !opts.noClean){ const t=trimToContent(doc);
     if(t.trimmed){ const [a,b,c,d]=t.box, X0=a*src.w, Y0=b*src.h, X1=c*src.w, Y1=d*src.h; doc=cleanDocument(warpGray(src,[[X0,Y0],[X1,Y0],[X1,Y1],[X0,Y1]],maxPx)); doc.trimmed=true; } }
   doc=rotate90(doc, opts.rot||0);
   doc=tiltGray(doc, opts.tilt||0);
@@ -712,6 +714,7 @@ async function makeArchive(file, quad, opts){
 async function cropEditor(entry, onDone, opts2){
   const src=await getSource(entry.file);
   let q=(entry.quad||detectQuad(src)||fullQuad(src)).map(p=>[...p]);
+  const base=(entry.opts&&entry.opts.noClean)?{noClean:true}:{};
   let rot=(entry.opts&&entry.opts.rot)||0, tilt=(entry.opts&&entry.opts.tilt)||0, mode='crop', quadSet=!!(entry.cropped||entry.manualQuad);
   const vw=Math.min(window.innerWidth,520)-32, vh=window.innerHeight*0.5, k=Math.min(vw/src.w, vh/src.h);
   const dw=Math.round(src.w*k), dh=Math.round(src.h*k), r=Math.max(src.w,src.h)*0.028;
@@ -738,7 +741,7 @@ async function cropEditor(entry, onDone, opts2){
     svg.innerHTML=`<path d="M0,0H${src.w}V${src.h}H0Z M${q.map(p=>p.join(',')).join(' L')}Z" fill="rgba(0,0,0,.45)" fill-rule="evenodd"/>
       <polygon points="${pts}" fill="none" stroke="#3fae8f" stroke-width="${r*0.18}"/>
       ${q.map((p,i)=>`<circle data-h="${i}" cx="${p[0]}" cy="${p[1]}" r="${r}" fill="rgba(63,174,143,.35)" stroke="#fff" stroke-width="${r*0.16}" style="cursor:grab"/>`).join('')}`; };
-  const renderPreview=()=>{ clearTimeout(prevTimer); prevTimer=setTimeout(()=>{ const d=processDoc(src, quadSet?q:null, {rot,tilt}, 0.5e6);
+  const renderPreview=()=>{ clearTimeout(prevTimer); prevTimer=setTimeout(()=>{ const d=processDoc(src, quadSet?q:null, {...base,rot,tilt}, 0.5e6);
     const c=document.createElement('canvas'); c.width=d.w; c.height=d.h; const x=c.getContext('2d'), im=x.createImageData(d.w,d.h);
     for(let i=0,j=0;j<d.g.length;i+=4,j++){ im.data[i]=im.data[i+1]=im.data[i+2]=d.g[j]; im.data[i+3]=255; } x.putImageData(im,0,0);
     s.querySelector('#cePrev').src=c.toDataURL('image/jpeg',0.8); }, 120); };
@@ -758,7 +761,7 @@ async function cropEditor(entry, onDone, opts2){
   const tl=s.querySelector('#ceTilt'); tl.oninput=()=>{ tilt=+tl.value; s.querySelector('#ceTiltV').textContent=tilt+'°'; if(mode!=='prev') setMode('prev'); else renderPreview(); };
   s.querySelector('#ceFull').onclick=()=>{ q=fullQuad(src); quadSet=true; draw(); if(mode==='prev') renderPreview(); };
   s.querySelector('#ceAuto').onclick=()=>{ const a=detectQuad(src); if(a){ q=a; quadSet=true; } else { q=fullQuad(src); quadSet=false; toast('Couldn\'t find the bill edges — the photo will be trimmed to the printed area, or drag the corners'); } draw(); if(mode==='prev') renderPreview(); };
-  s.querySelector('#ceApply').onclick=async e=>{ e.target.disabled=true; e.target.textContent='Applying…'; const ne=await makeArchive(entry.file, quadSet?q:null, {rot,tilt}); applied=true; close(); onDone(ne); };
+  s.querySelector('#ceApply').onclick=async e=>{ e.target.disabled=true; e.target.textContent='Applying…'; const ne=await makeArchive(entry.file, quadSet?q:null, {...base,rot,tilt}); applied=true; close(); onDone(ne); };
   draw();
 }
 const photoUrls=new Map();
@@ -783,14 +786,21 @@ async function fillThumbs(root){
 function photoViewer(bill, start){
   const ids=(bill.photos||[]).map(p=>p.id); let i=start||0, zoom=false;
   openSheet(`${sheetHd('Bill photo')}<div class="bd" style="padding:0 8px 8px"><div id="pvWrap" style="overflow:auto;border-radius:12px;background:#fff;max-height:70vh;touch-action:pan-x pan-y pinch-zoom"><img id="pvImg" alt="Bill photo" style="display:block;width:100%;height:auto"></div>
-    <p class="tiny faint" id="pvInfo" style="text-align:center;margin-top:6px"></p></div>
-    <div class="ft" style="gap:8px">${ids.length>1?`<button class="btn ghost" id="pvPrev" style="flex:0 0 auto" aria-label="Previous photo">‹</button>`:''}<button class="btn ghost" id="pvZoom">Zoom in</button>${STANDALONE?`<button class="btn ghost" id="pvDl">Download</button>`:''}<button class="btn ghost" id="pvDel" style="color:var(--up)">Delete</button>${ids.length>1?`<button class="btn ghost" id="pvNext" style="flex:0 0 auto" aria-label="Next photo">›</button>`:''}</div>`, async s=>{
+    <div class="row" style="justify-content:center;gap:10px;margin-top:6px">${ids.length>1?`<button class="iconbtn" id="pvPrev" aria-label="Previous photo" style="font-size:22px">‹</button>`:''}<p class="tiny faint" id="pvInfo" style="text-align:center"></p>${ids.length>1?`<button class="iconbtn" id="pvNext" aria-label="Next photo" style="font-size:22px">›</button>`:''}</div></div>
+    <div class="ft pvft" style="gap:6px"><button class="btn ghost" id="pvZoom">Zoom in</button><button class="btn ghost" id="pvAdj">✂ Adjust</button>${STANDALONE?`<button class="btn ghost" id="pvDl">Download</button>`:''}<button class="btn ghost" id="pvDel" style="color:var(--up)">Delete</button></div>`, async s=>{
     const show=async()=>{ const im=s.querySelector('#pvImg'); const u=await photoURL(ids[i]); im.src=u||''; im.style.width=zoom?'200%':'100%';
       const m=bill.photos[i]; s.querySelector('#pvInfo').textContent=(ids.length>1?`Photo ${i+1} of ${ids.length} · `:'')+(m&&m.size?Math.round(m.size/1024)+' KB':'')+(u?'':' · not available on this device'); };
     s.querySelector('#pvZoom').onclick=e=>{ zoom=!zoom; e.target.textContent=zoom?'Fit to screen':'Zoom in'; show(); };
     s.querySelector('#pvPrev')&&(s.querySelector('#pvPrev').onclick=()=>{ i=(i-1+ids.length)%ids.length; show(); });
     s.querySelector('#pvNext')&&(s.querySelector('#pvNext').onclick=()=>{ i=(i+1)%ids.length; show(); });
     s.querySelector('#pvDl')&&(s.querySelector('#pvDl').onclick=async()=>{ const rec=await PhotoDB.get(ids[i]); if(!rec){ toast('Photo not available'); return; } downloadFile(`bill-${bill.date}-${(bill.store||'store').replace(/\W+/g,'-')}${ids.length>1?'-'+(i+1):''}.jpg`, rec.blob, 'image/jpeg'); });
+    s.querySelector('#pvAdj').onclick=()=>adjustSavedPhoto(ids[i], async ne=>{
+      const oldId=ids[i], cur=S.bills.find(x=>x.id===bill.id)||bill, nb=JSON.parse(JSON.stringify(cur));
+      const [meta]=await storePhotos(nb.id,[ne]); const at=(nb.photos||[]).findIndex(p=>p.id===oldId);
+      if(at<0) return; nb.photos[at]=meta;
+      await saveBill(nb); await dropPhotos([oldId]); queuePhotos([meta.id],[oldId]); toast('Photo updated');
+      photoViewer(nb, at);
+    });
     s.querySelector('#pvDel').onclick=async()=>{
       const ok=await overlayConfirm('Delete this photo?', '<p class="muted">The bill and its items stay. Only this photo is removed.</p>', 'Delete photo'); if(!ok) return;
       const id=ids[i], cur=S.bills.find(x=>x.id===bill.id)||bill, nb=JSON.parse(JSON.stringify(cur));
@@ -800,6 +810,15 @@ function photoViewer(bill, start){
     };
     show();
   });
+}
+/* Adjust a photo that is already saved: start from the stored document copy (full frame, no re-cleaning). */
+async function adjustSavedPhoto(photoId, onDone){
+  await photoURL(photoId);                                   // downloads it from the cloud first if needed
+  const rec=await PhotoDB.get(photoId);
+  if(!rec||!rec.blob){ toast('This photo isn\'t available on this device yet'); return; }
+  const src=await getSource(rec.blob);
+  cropEditor({file:rec.blob, quad:fullQuad(src), cropped:true, opts:{noClean:true, rot:0, tilt:0}}, onDone,
+    {title:'Adjust bill photo', applyLabel:'Save', intro:'Crop tighter, rotate or straighten this photo. The original camera photo isn\'t stored, so areas already cut off can\'t be brought back.'});
 }
 /* Several photos picked for one bill: review them (remove wrong ones, add pages) before reading. */
 function photoPicker(files){
@@ -1160,7 +1179,7 @@ function reviewSheet(bill, isNew, newArch){
   const fromScan=!!(newArch&&newArch.length);
   const added=(newArch||[]).map(a=>({...a, url:URL.createObjectURL(a.blob)})); const removed=[];
   const xIcon='<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.6" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>';
-  const stripHtml=()=>`<div class="thumbs">${b.photos.map((p,i)=>`<div class="thumb"><img data-photo="${esc(p.id)}" alt="Bill photo"><button class="rm" data-rmold="${i}" aria-label="Remove photo">${xIcon}</button></div>`).join('')}${added.map((a,i)=>`<div class="thumb" data-crop="${i}" style="cursor:pointer"><img src="${a.url}" alt="Bill photo"><button class="rm" data-rmnew="${i}" aria-label="Remove photo">${xIcon}</button><span style="position:absolute;left:4px;bottom:4px;right:4px;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 0;text-align:center">✂ Adjust</span></div>`).join('')}<button class="thumb add" id="rPhotoAdd">+ Add<br>photo</button></div>`;
+  const stripHtml=()=>`<div class="thumbs">${b.photos.map((p,i)=>`<div class="thumb" data-cropold="${i}" style="cursor:pointer"><img data-photo="${esc(p.id)}" alt="Bill photo"><button class="rm" data-rmold="${i}" aria-label="Remove photo">${xIcon}</button><span style="position:absolute;left:4px;bottom:4px;right:4px;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 0;text-align:center">✂ Adjust</span></div>`).join('')}${added.map((a,i)=>`<div class="thumb" data-crop="${i}" style="cursor:pointer"><img src="${a.url}" alt="Bill photo"><button class="rm" data-rmnew="${i}" aria-label="Remove photo">${xIcon}</button><span style="position:absolute;left:4px;bottom:4px;right:4px;background:rgba(0,0,0,.62);color:#fff;font-size:10.5px;font-weight:700;border-radius:6px;padding:2px 0;text-align:center">✂ Adjust</span></div>`).join('')}<button class="thumb add" id="rPhotoAdd">+ Add<br>photo</button></div>`;
   const unitOpts=u=>['g','kg','ml','l','pc','m'].map(x=>`<option ${x===u?'selected':''}>${x}</option>`).join('');
   const rowHtml=(it,i)=>`<div class="itemrow" data-i="${i}"><div class="nm"><input type="text" data-f="name" value="${esc(it.name)}" placeholder="Item as on bill"><input type="text" data-f="canon" value="${esc(it.canon)}" placeholder="Track as…"></div>
     <span class="small faint" style="padding-left:2px">Qty / unit / amount</span><input type="number" inputmode="decimal" step="any" data-f="qty" value="${it.qty}"><select data-f="unit">${unitOpts(it.unit)}</select><input type="number" inputmode="decimal" step="any" data-f="price" value="${it.price}"><button class="x" data-del="${i}" aria-label="Remove item"><svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg></button>
@@ -1191,6 +1210,9 @@ function reviewSheet(bill, isNew, newArch){
       const o=e.target.closest('[data-rmold]'), n=e.target.closest('[data-rmnew]');
       if(o){ removed.push(b.photos.splice(+o.dataset.rmold,1)[0].id); redrawPhotos(); return; }
       if(n){ const a=added.splice(+n.dataset.rmnew,1)[0]; URL.revokeObjectURL(a.url); redrawPhotos(); return; }
+      const co=e.target.closest('[data-cropold]');
+      if(co){ const i=+co.dataset.cropold, old=b.photos[i];
+        adjustSavedPhoto(old.id, ne=>{ removed.push(old.id); b.photos.splice(i,1); added.push({...ne, url:URL.createObjectURL(ne.blob)}); redrawPhotos(); toast('Photo adjusted — tap Save bill to keep it'); }); return; }
       const cr=e.target.closest('[data-crop]');
       if(cr){ const i=+cr.dataset.crop; if(!added[i].file) return; cropEditor(added[i], ne=>{ URL.revokeObjectURL(added[i].url); added[i]={...ne, url:URL.createObjectURL(ne.blob)}; redrawPhotos(); }); return; }
       if(e.target.closest('#rPhotoAdd')){ const fs=await pickPhotos(); if(!fs.length) return; toast('Preparing photo…');

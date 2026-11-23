@@ -55,7 +55,9 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
   - **Fit to bill:** drag the four corners onto the bill's edges. **No crop** keeps the whole photo.
   - **Rotate 90°:** turn a sideways photo upright.
   - **Straighten:** fine-tune the angle by up to ±15°; the page grows so nothing is cut off.
-  - **Preview:** shows exactly how the bill will be saved. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
+  - **Preview:** shows exactly how the bill will be saved.
+
+  **Saved photos can be adjusted later too.** Open the photo and tap **✂ Adjust**, or tap it while editing the bill. You can crop it tighter, rotate it or straighten it. The original camera photo isn't stored, so this works on the saved copy, which isn't re-cleaned and doesn't darken. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
 - **Your API key** is stored only in your browser.
 - **Extra safety:** **Settings → Download backup** gives you a file copy, including photos, any time you want one.
 
