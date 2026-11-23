@@ -51,8 +51,8 @@ Scan your grocery, supermarket and textile bills with your phone camera, and see
   - **Cleaned:** shadows and uneven light are removed, giving white paper with dark grey or black text.
   - **Small:** usually 40–100 KB.
   
-  Whenever you add a photo, the **Adjust** screen opens:
-  - **Fit to bill:** drag the four corners onto the bill's edges.
+  When you scan a bill, the **Adjust** screen opens straight after the photo is taken, before anything is read. The same screen opens whenever you add a photo later. Check the auto-crop, then tap **Continue**. The bill is read from your adjusted photo. The screen offers:
+  - **Fit to bill:** drag the four corners onto the bill's edges. **No crop** keeps the whole photo.
   - **Rotate 90°:** turn a sideways photo upright.
   - **Straighten:** fine-tune the angle by up to ±15°; the page grows so nothing is cut off.
   - **Preview:** shows exactly how the bill will be saved. White bills on white tables are trimmed to the printed area. Open a bill and tap its photo to view or zoom. Photos are stored on the phone (IndexedDB) and backed up to Firestore at `users/{uid}/photos/{photoId}`. On a new phone, each photo downloads the first time you open its bill.
